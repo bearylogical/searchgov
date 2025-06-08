@@ -1,0 +1,10 @@
+*.yaml
+.pytest_cache
+__pycache__/
+.venv/
+.vscode/
+.ruff_cache/
+data/
+cache/
+archive/
+.env
