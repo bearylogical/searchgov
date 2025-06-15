@@ -1,14 +1,12 @@
 # src/repositories/employment.py
 from .base import BaseRepository
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import json
-import logging
 
 
 class EmploymentRepository(BaseRepository):
     def __init__(self, db_connection):
         super().__init__(db_connection)
-        self.logger = logging.getLogger(__name__)
 
     def create(self, data: Dict[str, Any]) -> Optional[int]:
         """
@@ -61,7 +59,7 @@ class EmploymentRepository(BaseRepository):
                 )
                 raise
 
-    def find_by_id(
+    def find_by_employment_id(
         self, record_id: int
     ) -> Optional[Dict[str, Any]]:  # Renamed id to record_id
         with self.db.get_cursor() as cur:
@@ -89,6 +87,35 @@ class EmploymentRepository(BaseRepository):
                         )
                 return res_dict
             return None
+
+    def find_by_person_id(self, person_id: int) -> List[Dict[str, Any]]:
+        """Find all employment records for a person"""
+        with self.db.get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT e.*, p.name as person_name, o.name as org_name, o.metadata as org_metadata, o.id as org_id
+                FROM employment e
+                JOIN people p ON e.person_id = p.id
+                JOIN organizations o ON e.org_id = o.id
+                WHERE e.person_id = %s
+                ORDER BY e.start_date
+            """,
+                (person_id,),
+            )
+            results = []
+            for row in cur.fetchall():
+                res_dict = dict(row)
+                if isinstance(res_dict.get("metadata"), str):
+                    try:
+                        res_dict["metadata"] = json.loads(
+                            res_dict["metadata"]
+                        )
+                    except json.JSONDecodeError:
+                        self.logger.warning(
+                            f"Could not decode metadata for employment with person_id {person_id}"
+                        )
+                results.append(res_dict)
+            return results
 
     def find_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         # Not applicable for employment
@@ -123,3 +150,138 @@ class EmploymentRepository(BaseRepository):
                         )
                 results.append(res_dict)
             return results
+
+    def find_most_recent_end_date(self) -> Optional[str]:
+        """Get the most recent end date across all employment records"""
+        with self.db.get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT MAX(end_date) as most_recent_end_date
+                FROM employment
+            """
+            )
+            result = cur.fetchone()
+            if result and result["most_recent_end_date"]:
+                return result["most_recent_end_date"].isoformat()
+            return None
+
+    def find_people_with_overlapping_employment(
+        self,
+        person_ids: Union[int, List[int]],
+        name_filter: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Finds unique person/employment records connected to a given person or
+        list of people by working in the same organization or its hierarchy
+        during an overlapping time period.
+
+        A person may appear multiple times if they have multiple distinct
+        overlapping employments.
+
+        Args:
+            person_ids: The ID or list of IDs of the source person(s).
+            name_filter: If provided, filters the results for people with a
+                        matching name (case-insensitive, wildcard). The limit
+                        is ignored when this is used.
+            limit: The max number of records to return if name_filter is not used.
+
+        Returns:
+            A list of dictionaries, each with the 'id', 'name', 'start_date',
+            and 'end_date' of a person's overlapping employment.
+        """
+        # Normalize input to a list and handle empty case
+        if isinstance(person_ids, int):
+            source_person_ids = [person_ids]
+        else:
+            source_person_ids = person_ids
+
+        if not source_person_ids:
+            return []
+
+        with self.db.get_cursor() as cur:
+            # This query is complex, so let's break it down with CTEs:
+            # 1. `source_employments`: Gathers all employment records for the
+            #    input person(s).
+            # 2. `descendant_orgs`: Recursively finds all organizations that are
+            #    children, grandchildren, etc., of the source employment orgs.
+            # 3. `ancestor_orgs`: Recursively finds all parent, grandparent,
+            #    etc., organizations.
+            # 4. `org_family`: Combines the source orgs, their ancestors, and
+            #    their descendants into a single set of relevant organizations.
+            # 5. Final SELECT: Finds other people who worked in the `org_family`
+            #    during an overlapping time period, excluding the source people.
+            sql = """
+                WITH RECURSIVE
+                source_employments AS (
+                    SELECT org_id, start_date, end_date
+                    FROM employment
+                    WHERE person_id IN %(source_person_ids)s
+                ),
+                descendant_orgs AS (
+                    -- Base case: Orgs where the source people worked
+                    SELECT id FROM organizations
+                    WHERE id IN (SELECT org_id FROM source_employments)
+                    UNION ALL
+                    -- Recursive step: Children of orgs already found
+                    SELECT o.id FROM organizations o
+                    JOIN descendant_orgs d ON o.parent_org_id = d.id
+                ),
+                ancestor_orgs AS (
+                    -- Base case: Orgs where the source people worked
+                    SELECT id, parent_org_id FROM organizations
+                    WHERE id IN (SELECT org_id FROM source_employments)
+                    UNION ALL
+                    -- Recursive step: Parents of orgs already found
+                    SELECT o.id, o.parent_org_id FROM organizations o
+                    JOIN ancestor_orgs a ON o.id = a.parent_org_id
+                ),
+                org_family AS (
+                    -- Combine all related orgs, removing duplicates
+                    SELECT id FROM descendant_orgs
+                    UNION
+                    SELECT id FROM ancestor_orgs
+                )
+                -- Final selection of people with overlapping employment
+                SELECT DISTINCT
+                    p.id,
+                    p.name,
+                    e2.start_date,
+                    e2.end_date
+                FROM people p
+                JOIN employment e2 ON p.id = e2.person_id
+                WHERE
+                    -- Exclude the source person(s) from the results
+                    p.id NOT IN %(source_person_ids)s
+                    -- Filter to employments within the same org hierarchy
+                    AND e2.org_id IN (SELECT id FROM org_family)
+                    -- Check for any time overlap with any of the source employments
+                    AND EXISTS (
+                        SELECT 1
+                        FROM source_employments e1
+                        WHERE daterange(e1.start_date, e1.end_date, '[]') &&
+                              daterange(e2.start_date, e2.end_date, '[]')
+                    )
+            """
+            # Parameters for the query. Using a tuple for the IN clause.
+            params = {"source_person_ids": tuple(source_person_ids)}
+
+            # Dynamically add the name filter if it exists
+            if name_filter:
+                sql += " AND p.name ILIKE %(name_filter)s"
+                params["name_filter"] = f"%{name_filter}%"
+
+            # Always order for consistent results.
+            sql += " ORDER BY p.name ASC, e2.start_date ASC"
+
+            # Only apply the limit if we are NOT filtering by name
+            if not name_filter:
+                sql += " LIMIT %(limit)s"
+                params["limit"] = limit
+
+            # self.logger.debug(
+            #     "Executing find_people_with_overlapping_employment with params: "
+            #     f"{params} and SQL: {sql}"
+            # )
+            cur.execute(sql, params)
+            return [dict(row) for row in cur.fetchall()]

@@ -1,5 +1,7 @@
 from typing import List, Dict, Union, Optional, Tuple, Any
 from src.database.postgres.connection import DatabaseConnection
+from src.repositories.employment import EmploymentRepository
+from src.repositories.organisations import OrganisationsRepository
 from datetime import datetime
 import logging
 from thefuzz import fuzz  # Added for fuzzywuzzy
@@ -19,9 +21,16 @@ DEFAULT_MIN_STRONG_PAIRWISE_LINKS = (
 
 
 class QueryService:
-    def __init__(self, db_connection: DatabaseConnection):
+    def __init__(
+        self,
+        db_connection: DatabaseConnection,
+        employment_repo: EmploymentRepository,
+        org_repo: OrganisationsRepository,
+    ):
         self.db = db_connection
         self.logger = logging.getLogger(__name__)
+        self.employment_repo = employment_repo
+        self.org_repo = org_repo
 
     def _get_similar_person_names(
         self,
@@ -408,7 +417,7 @@ class QueryService:
 
         return self._deduplicate_list_of_dicts(all_colleagues)
 
-    def get_career_progression(
+    def get_career_progression_by_name(
         self,
         person_name: str,
         is_fuzzy: bool = False,
@@ -421,6 +430,7 @@ class QueryService:
         ] = None,  # Renamed for clarity
         fw_pairwise_check_threshold: float = DEFAULT_SECONDARY_PAIRWISE_THRESHOLD,
         min_links_for_pairwise_check: int = DEFAULT_MIN_STRONG_PAIRWISE_LINKS,
+        get_parent_orgs: bool = True,
     ) -> List[Dict]:
         """Get career progression, optionally using fuzzy search for multiple similar names."""
         names_to_query: List[str] = [person_name]
@@ -459,9 +469,11 @@ class QueryService:
                         """
                         SELECT
                             p.name as person_actual_name,
+                            p.id as person_id,
                             o.name as entity_name,
                             o.department as department_name,
-                            po.name as parent_organization_name, 
+                            o.id as org_id,
+                            po.name as parent_organization_name,
                             o.metadata as entity_metadata,
                             e.rank,
                             e.start_date,
@@ -478,11 +490,20 @@ class QueryService:
                         (name_to_use,),
                     )
                     results = [dict(row) for row in cur.fetchall()]
+
                     all_progressions.extend(results)
                     if results:
                         self.logger.debug(
                             f"Found {len(results)} career progression entries for '{name_to_use}'."
                         )
+                if all_progressions and get_parent_orgs:
+                    for progression in all_progressions:
+                        progression["linked_org"] = (
+                            self.org_repo.get_all_ancestors(
+                                progression["org_id"],
+                            )
+                        )
+                        # progression["linked_parent_orgs"] =
         except Exception as e:
             self.logger.error(
                 f"Error getting career progression for names derived from '{person_name}': {e}"
@@ -491,14 +512,69 @@ class QueryService:
 
         return self._deduplicate_list_of_dicts(all_progressions)
 
-    def get_network_snapshot(self, target_date: str) -> List[Dict]:
-        """Get network state at specific date (no changes for fuzzy search here)."""
+    def get_career_progression_by_person_id(
+        self,
+        person_id: int,
+        get_parent_orgs: bool = True,
+    ) -> List[Dict]:
+        """Get career progression by person ID."""
+        all_progressions: List[Dict] = []
         try:
             with self.db.get_cursor() as cur:
                 cur.execute(
                     """
                     SELECT
+                        p.name as person_actual_name,
+                        p.id as person_id,
+                        o.name as entity_name,
+                        o.department as department_name,
+                        o.id as org_id,
+                        po.name as parent_organization_name,
+                        o.metadata as entity_metadata,
+                        e.rank,
+                        e.start_date,
+                        e.end_date,
+                        e.tenure_days,
+                        ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY e.start_date) as sequence_number
+                    FROM employment e
+                    JOIN people p ON e.person_id = p.id
+                    JOIN organizations o ON e.org_id = o.id
+                    LEFT JOIN organizations po ON o.parent_org_id = po.id 
+                    WHERE p.id = %s
+                    ORDER BY p.id, e.start_date
+                    """,
+                    (person_id,),
+                )
+                results = [dict(row) for row in cur.fetchall()]
+                all_progressions.extend(results)
+                if results and get_parent_orgs:
+                    for progression in all_progressions:
+                        progression["linked_org"] = (
+                            self.org_repo.get_all_ancestors(
+                                progression["org_id"],
+                            )
+                        )
+        except Exception as e:
+            self.logger.error(
+                f"Error getting career progression for person ID {person_id}: {e}"
+            )
+            return []
+
+        return self._deduplicate_list_of_dicts(all_progressions)
+
+    def get_network_snapshot(self, target_date: str) -> List[Dict]:
+        """
+        Gets the network state at a specific date, including the unique IDs
+        for people and organizations.
+        """
+        try:
+            with self.db.get_cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        p.id as person_id,      -- Added this line
                         p.name as person_name,
+                        o.id as org_id,        -- Added this line
                         o.name as org_name,
                         e.rank,
                         e.start_date,
@@ -508,12 +584,72 @@ class QueryService:
                     FROM employment e
                     JOIN people p ON e.person_id = p.id
                     JOIN organizations o ON e.org_id = o.id
-                    WHERE %s BETWEEN e.start_date AND e.end_date
-                    ORDER BY o.name, p.name
+                    WHERE %(target_date)s BETWEEN e.start_date AND e.end_date
+                    ORDER BY o.name, p.name;
                 """,
-                    (target_date,),
+                    {"target_date": target_date},
                 )
                 return [dict(row) for row in cur.fetchall()]
         except Exception as e:
             self.logger.error(f"Error getting network snapshot: {e}")
+            return []
+
+    def find_people_by_temporal_overlap(
+        self,
+        person_id: int,
+        name_filter: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Finds people connected to a given person via overlapping employment.
+        """
+        self.logger.info(
+            f"Finding temporal connections for person_id: {person_id}"
+        )
+        return self.employment_repo.find_people_with_overlapping_employment(
+            person_id, name_filter, limit
+        )
+
+    def find_employment_by_person_id(
+        self,
+        person_id: int,
+        limit: int = 50,
+        get_recent_employment: bool = False,
+    ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Finds employment connected to a given person ID.
+        """
+        res = self.employment_repo.find_by_person_id(person_id, limit)
+        if get_recent_employment and res:
+            # Sort by start_date descending to get the most recent employment first
+            res.sort(key=lambda x: x["start_date"], reverse=True)[0]
+        return res
+
+    def get_all_employment_data(self) -> List[Dict]:
+        """
+        Gets the entire network history, including unique IDs for people
+        and organizations, across all time.
+        """
+        self.logger.info("Fetching all historical employment data.")
+        try:
+            with self.db.get_cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        p.id as person_id,
+                        p.name as person_name,
+                        o.id as org_id,
+                        o.name as org_name,
+                        e.rank,
+                        e.start_date,
+                        e.end_date
+                    FROM employment e
+                    JOIN people p ON e.person_id = p.id
+                    JOIN organizations o ON e.org_id = o.id
+                    ORDER BY o.name, p.name;
+                """
+                )
+                return [dict(row) for row in cur.fetchall()]
+        except Exception as e:
+            self.logger.error(f"Error getting all employment data: {e}")
             return []

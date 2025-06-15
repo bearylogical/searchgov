@@ -1,9 +1,8 @@
 # database/connection.py
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import logging
-from typing import Dict, Any, Optional
 from contextlib import contextmanager
+from loguru import logger
 
 
 class DatabaseConnection:
@@ -24,7 +23,7 @@ class DatabaseConnection:
         }
 
         self.conn = None
-        self.logger = logging.getLogger(__name__)
+        self.logger = logger
         self.connect()
 
     def connect(self):

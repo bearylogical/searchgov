@@ -1,13 +1,13 @@
 # database/schema.py
 from .connection import DatabaseConnection
-import logging
 from pgvector.psycopg2 import register_vector
+from loguru import logger
 
 
 class SchemaManager:
     def __init__(self, db_connection: DatabaseConnection):
         self.db = db_connection
-        self.logger = logging.getLogger(__name__)
+        self.logger = logger
 
     def setup_schema(self):
         """Create complete database schema"""
@@ -35,7 +35,8 @@ class SchemaManager:
                 "employment",
                 "people",
                 "organizations",
-                "colleague_pairs",  # Materialized view, will be dropped with CASCADE from dependent tables or explicitly
+                "colleague_pairs",
+                # Materialized view, will be dropped with CASCADE from dependent tables or explicitly
             ]
 
             # Drop materialized view first if it exists and is not dropped by CASCADE
@@ -78,12 +79,12 @@ class SchemaManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS people (
                     id SERIAL PRIMARY KEY,
-                    name VARCHAR(500) UNIQUE NOT NULL,
+                    name VARCHAR(500) NOT NULL, -- UNIQUE constraint removed from here
                     clean_name VARCHAR(500) NOT NULL,
                     tel VARCHAR(50),
                     email VARCHAR(320),
+                    disambiguation_key INTEGER NOT NULL DEFAULT 1,
                     metadata JSONB DEFAULT '{}',
-                    embedding VECTOR(768),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
@@ -93,9 +94,9 @@ class SchemaManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS organizations (
                     id SERIAL PRIMARY KEY,
-                    name VARCHAR(1000) UNIQUE NOT NULL,
+                    name VARCHAR(1000)  NOT NULL,
                     department VARCHAR(500),
-                    url VARCHAR(1000),
+                    url VARCHAR(1000) UNIQUE,
                     parent_org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL, -- Added parent org link
                     metadata JSONB DEFAULT '{}',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -129,6 +130,11 @@ class SchemaManager:
             ON employment (person_id, org_id, COALESCE(rank, ''), start_date, end_date);
             """)
 
+            cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_people_unique_person
+            ON people(name, disambiguation_key);
+            """)
+
             self.logger.info("Database tables created")
 
     def _create_indexes(self):
@@ -143,7 +149,8 @@ class SchemaManager:
                 # Organizations indexes
                 "CREATE INDEX IF NOT EXISTS idx_org_name ON organizations(name);",
                 "CREATE INDEX IF NOT EXISTS idx_org_name_trgm ON organizations USING gin(name gin_trgm_ops);",
-                "CREATE INDEX IF NOT EXISTS idx_org_parent_org_id ON organizations(parent_org_id);",  # Index for parent org
+                "CREATE INDEX IF NOT EXISTS idx_org_parent_org_id ON organizations(parent_org_id);",
+                # Index for parent org
                 # Employment indexes
                 "CREATE INDEX IF NOT EXISTS idx_employment_person ON employment(person_id);",
                 "CREATE INDEX IF NOT EXISTS idx_employment_org ON employment(org_id);",
@@ -329,6 +336,102 @@ class SchemaManager:
                 $$ LANGUAGE plpgsql;
             """)
             # self.db.conn.commit() # Commit is handled by the transaction context manager
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION find_organizations_by_depth(
+                    p_depth INTEGER
+                )
+                RETURNS TABLE(
+                    id INTEGER,
+                    name VARCHAR(1000),
+                    department VARCHAR(500),
+                    url VARCHAR(1000),
+                    parent_org_id INTEGER,
+                    metadata JSONB
+                ) AS $$
+                BEGIN
+                    RETURN QUERY
+                    SELECT
+                        o.id,
+                        o.name,
+                        o.department,
+                        o.url,
+                        o.parent_org_id,
+                        o.metadata
+                    FROM
+                        organizations o
+                    WHERE
+                        -- Check if the 'parts' key exists and is an array
+                        o.metadata ? 'parts' AND
+                        jsonb_typeof(o.metadata->'parts') = 'array' AND
+                        -- This is the key condition: filter by array length
+                        jsonb_array_length(o.metadata->'parts') = p_depth
+                    ORDER BY
+                        o.name;
+                END;
+                $$ LANGUAGE plpgsql;
+            """)
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION get_org_descendants_diff(
+                p_parent_org_id INT,
+                p_start_date TEXT,
+                p_end_date TEXT
+            )
+            -- Defines the columns that this function will return in a table format
+            RETURNS TABLE(
+                org_id INT,
+                name TEXT,
+                status TEXT,
+                details JSONB -- Returning the full end-state metadata can be useful
+            )
+            LANGUAGE sql AS $$
+
+            -- This CTE finds all descendants of the parent, regardless of date.
+            -- It's the base population we'll filter from.
+            WITH RECURSIVE org_hierarchy AS (
+                SELECT * FROM organizations WHERE id = p_parent_org_id
+                UNION ALL
+                SELECT o.* FROM organizations o
+                JOIN org_hierarchy h ON o.parent_org_id = h.id
+            ),
+
+            -- This CTE filters the hierarchy to find orgs active on the START date.
+            start_state AS (
+                SELECT id, name, metadata FROM org_hierarchy
+                WHERE
+                    id != p_parent_org_id -- Exclude the parent itself
+                    AND p_start_date::date >= COALESCE((metadata->>'first_observed')::date, '1900-01-01'::date)
+                    AND p_start_date::date <= COALESCE((metadata->>'last_observed')::date, '9999-12-31'::date)
+            ),
+
+            -- This CTE filters the hierarchy to find orgs active on the END date.
+            end_state AS (
+                SELECT id, name, metadata FROM org_hierarchy
+                WHERE
+                    id != p_parent_org_id -- Exclude the parent itself
+                    AND p_end_date::date >= COALESCE((metadata->>'first_observed')::date, '1900-01-01'::date)
+                    AND p_end_date::date <= COALESCE((metadata->>'last_observed')::date, '9999-12-31'::date)
+            )
+
+            -- The final SELECT statement compares the two states.
+            -- A FULL OUTER JOIN is perfect for finding differences between two sets.
+            SELECT
+                -- Use COALESCE to get the ID from whichever set has it.
+                COALESCE(s.id, e.id) AS org_id,
+                -- Prefer the name from the end_state, as it's more current.
+                COALESCE(e.name, s.name) AS name,
+                -- The CASE statement determines the status based on which set the org is in.
+                CASE
+                    WHEN s.id IS NULL THEN 'added'
+                    WHEN e.id IS NULL THEN 'removed'
+                    ELSE 'unchanged'
+                END::TEXT AS status,
+                -- Return the metadata from the end_state for added/unchanged orgs.
+                e.metadata AS details
+            FROM start_state s
+            FULL OUTER JOIN end_state e ON s.id = e.id;
+
+            $$;
+            """)
 
             self.logger.info("Database functions created")
 
@@ -338,34 +441,3 @@ class SchemaManager:
             cur.execute("SELECT refresh_colleague_pairs();")
         # self.db.conn.commit() # Commit is handled by the transaction context manager
         self.logger.info("Materialized views refreshed")
-
-    def optimize_vector_index(self):
-        """Optimize vector index for better performance"""
-        try:
-            with self.db.get_cursor() as cur:  # Use the connection's cursor method
-                self.logger.info(
-                    "Running VACUUM ANALYZE on people table..."
-                )
-                cur.execute("VACUUM ANALYZE people;")
-                self.logger.info(
-                    "Creating IVFFlat cosine index on people (embedding) if it doesn't exist..."
-                )
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_people_embedding_ivfflat_cosine
-                    ON people
-                    USING ivfflat (embedding vector_cosine_ops)
-                    WITH (lists = 100);
-                """)
-                self.logger.info(
-                    "Vector index operations complete, attempting to commit."
-                )
-            # self.db.conn.commit()  # Commit is handled by the transaction context manager
-            self.logger.info(
-                "Vector index optimized and transaction committed."
-            )
-        except Exception as e:
-            self.logger.error(
-                f"Error during vector index optimization: {e}"
-            )
-            # self.db.conn.rollback() # Rollback is handled by the transaction context manager
-            self.logger.info("Transaction rolled back due to error.")
