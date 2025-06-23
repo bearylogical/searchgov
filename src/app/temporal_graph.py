@@ -202,6 +202,18 @@ class TemporalGraph:
     ) -> List[Dict]:
         return self.analytics_service.find_succession_patterns(max_gap_days)
 
+    def get_db_stats(self) -> Dict[str, Dict[str, int]]:
+        """Get statistics about the database"""
+        res = {}
+        res["people_count"] = self.people_repo.get_name_stats()
+        res["orgs_count"] = self.orgs_repo.get_org_stats()
+
+        res["employment_count"] = (
+            self.employment_repo.get_employment_stats()
+        )
+
+        return res
+
     # Graph analysis
     def find_shortest_path(
         self,
