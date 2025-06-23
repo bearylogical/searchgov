@@ -30,4 +30,9 @@ def main_page():
 register_views()
 app.on_startup(initialize_app_state)
 app.on_shutdown(shutdown_app_state)
-ui.run(title="SGDI Analytics", storage_secret="test_secret", port=2167)
+ui.run(
+    title="SGDI Analytics",
+    storage_secret="test_secret",
+    port=2167,
+    host="0.0.0.0",
+)
