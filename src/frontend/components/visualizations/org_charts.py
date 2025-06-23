@@ -60,11 +60,11 @@ def create_radial_tree_chart(
     unique_id: Optional[str] = None,
 ) -> Tree:
     tree_data = _build_tree_structure(descendants, root_org)
-    chart_title = (
-        f"Organization Chart for {root_org.get('name', 'Root')}"
-        if not chart_title
-        else chart_title
-    )
+    # chart_title = (
+    #     f"Organization Chart for {root_org.get('name', 'Root')}"
+    #     if not chart_title
+    #     else chart_title
+    # )
 
     graphic_elements = []
     if overlay_text:
@@ -88,10 +88,13 @@ def create_radial_tree_chart(
         Tree(
             init_opts=opts.InitOpts(
                 animation_opts=opts.AnimationOpts(
-                    animation=True,
+                    animation=False,
                     animation_duration=500,
                     animation_easing="quinticInOut",
-                )
+                ),
+                width="100%",
+                height="100%",
+                bg_color="#f5f5f5",  # Light background for better contrast
             )
         )
         .add(
@@ -104,9 +107,10 @@ def create_radial_tree_chart(
             pos_left="7%",
             pos_right="7%",
             layout="radial",
-            symbol="emptyCircle",
-            symbol_size=4,
+            symbol="circle",
+            symbol_size=6,
             is_roam=True,
+            zoom=1,
             initial_tree_depth=-1,  # Expand all nodes by default
             label_opts=opts.LabelOpts(
                 is_show=False,
@@ -122,10 +126,29 @@ def create_radial_tree_chart(
                 font_size=12,
                 color="#333",
             ),
+            tooltip_opts=opts.TooltipOpts(
+                trigger="item",
+                trigger_on="mousemove",
+                formatter="{b}",
+            ),
+            emphasis_opts=opts.EmphasisOpts(
+                focus="ancestor",
+            ),
+            itemstyle_opts=opts.ItemStyleOpts(
+                # Dark grey for nodes
+                color="#999",
+                border_color="#555",  # Darker blue for borders
+                border_width=1,
+                opacity=0.8,  # Slightly transparent
+            ),
         )
         .set_global_opts(
             title_opts=opts.TitleOpts(
-                title=chart_title, subtitle=overlay_text
+                title=chart_title,
+                subtitle=overlay_text,
+                subtitle_textstyle_opts=opts.TextStyleOpts(
+                    font_size=12, font_style="italic"
+                ),
             ),
             graphic_opts=graphic_elements,
             tooltip_opts=opts.TooltipOpts(

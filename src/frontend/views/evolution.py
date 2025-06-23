@@ -4,8 +4,11 @@ from src.frontend.components.visualizations.org_charts import (
     create_radial_tree_chart,
     generate_tree_data,
 )
-from nicegui import ui
+from nicegui import ui, html
 from loguru import logger
+import pyecharts.charts as echarts
+
+import json
 
 # Let's assume these are available for a standalone example
 # from unittest.mock import Mock
@@ -31,8 +34,10 @@ def content():
             "root_org": None,
             "start_date": None,
             "date_queue": [],
+            "tree_object": None,
             "current_date_index": 0,
             "is_running": False,
+            "group_by": "Year",  # Default grouping
         }
 
         # --- UI Element References ---
@@ -64,6 +69,13 @@ def content():
                 on_change=lambda e: fetch_timeline_dates(e.value),
                 label="Select a Ministry",
             ).classes("w-72")
+            # Group by dates by year or quarter
+            # date_options = ui.select(
+            #     options=["Year"],
+            #     label="Group Dates By",
+            #     on_change=lambda e: date_grouper_handler(e.value),
+            #     value="Year",
+            # ).classes("w-48")
 
             # Date Selector
             refs["select_date"] = ui.select(
@@ -153,7 +165,7 @@ def content():
                     ui.notify("No timeline data to play.", type="info")
                     return
 
-            logger.info("Starting animation...")
+            logger.debug("Starting animation...")
             content_state["is_running"] = True
             animation_timer.activate()
             # Update UI for better user feedback
@@ -164,7 +176,7 @@ def content():
 
         def pause_animation():
             """Pauses the animation."""
-            logger.info("Pausing animation.")
+            logger.debug("Pausing animation.")
             content_state["is_running"] = False
             animation_timer.deactivate()
             # Update UI
@@ -174,7 +186,7 @@ def content():
 
         def reset_animation():
             """Stops and resets the animation and state."""
-            logger.info("Resetting animation.")
+            logger.debug("Resetting animation.")
             pause_animation()  # Stop the timer first
 
             # Reset state variables
@@ -196,24 +208,58 @@ def content():
                 content_state["ministry_id"], selected_date
             )
 
-            with refs["graph_container"]:
-                refs["graph_container"].clear()
-                if not res:
-                    ui.label(
-                        f"No organizational data found for {selected_date}"
-                    ).classes("m-auto text-xl text-gray-500")
-                    return
+            # get org info for the root org
 
-                tree_obj = create_radial_tree_chart(
-                    content_state["root_org"],
-                    res,
-                    chart_title=f'{content_state["root_org"]["name"]}, {selected_date}',
-                )
-                refs["tree_obj"] = (
-                    ui.echart.from_pyecharts(tree_obj)
-                    .classes("grow")
-                    .style("width: 100%; height: 42rem;")
-                )
+            with refs["graph_container"]:
+                # Clear the previous chart
+
+                refs["graph_container"].clear()
+
+                # create a two column layout
+                with ui.grid(columns=6).classes("w-full pt-8"):
+                    with ui.column().classes(
+                        "col-span-2 border border-gray-300"
+                    ).style("border-radius: 0.5rem; padding: 1rem;"):
+                        # Left side: Org Info page
+                        ui.label(
+                            f'{content_state["root_org"]["name"]} ({content_state["root_org"]["metadata"]["parts"][0].upper()})'
+                        ).classes("text-2xl font-bold col-span-2 ").style(
+                            "padding-bottom: 0rem;"
+                        )
+                        with html.section().classes(
+                            "text-gray-500 text-sm col-span-2"
+                        ):
+                            ui.label(
+                                f"Ministry ID: {content_state['ministry_id']}"
+                            )
+                            ui.label(f"Selected Date: {selected_date}")
+                            ui.label(f"Total Active Entities: {len(res)}")
+                    with ui.column().classes(
+                        "col-span-4 border border-gray-300"
+                    ).style(
+                        "border-radius: 0.5rem; padding: 1rem;bg-color:#f5f5f5"
+                    ):
+                        # refs["graph_container"].clear()
+                        if not res:
+                            ui.label(
+                                f"No organizational data found for {selected_date}"
+                            ).classes("m-auto text-xl text-gray-500")
+                            return
+
+                        tree_obj = create_radial_tree_chart(
+                            content_state["root_org"],
+                            res,
+                            chart_title=None,
+                        )
+
+                        # timeline.add(tree_obj, selected_date)
+                        # ui.echart(
+                        #     json.loads(timeline.dump_options_with_quotes())
+                        # ).classes("grow").style("width: 100%; height: 42rem;")
+
+                        ui.echart.from_pyecharts(tree_obj).classes(
+                            "grow"
+                        ).style(" height: 48rem;")
 
         def select_start_date(selected_date: str):
             """Handles the start date selection."""
@@ -222,6 +268,7 @@ def content():
             content_state["current_date_index"] = 0
             refs["start_button"].text = "Start"
             logger.debug(f"Start date set to: {selected_date}")
+            render_org_tree(selected_date)
 
         def fetch_timeline_dates(ministry_id: int):
             """Fetches all data needed when a new ministry is selected."""
@@ -236,6 +283,41 @@ def content():
             timeline_dates = app_state.graph_facade.get_org_timeline_dates(
                 ministry_id
             )
+            # Store the timeline dates and root org in the content state
+            # group the dates by year or quarter
+            # choose always the last date of the year or quarter in iso8601 format and the result should be in iso8601 format
+            if not timeline_dates:
+                ui.notify(
+                    "No timeline data available for this ministry.",
+                    type="warning",
+                )
+                return
+            if content_state["group_by"] == "Year":
+                # Group by year, taking the last date of each year, check if the timeline dates are in the previous date list
+                timeline_dates = sorted(
+                    set(date[:4] + "-01-01" for date in timeline_dates)
+                )
+
+                # check with
+            elif content_state["group_by"] == "Quarter":
+                # Group by quarter, taking the last date of each quarter
+                timeline_dates = sorted(
+                    set(
+                        date[:4]
+                        + "-"
+                        + str((int(date[5:7]) - 1) // 3 * 3 + 3).zfill(2)
+                        + "-01"
+                        for date in timeline_dates
+                    )
+                )
+                logger.debug(
+                    f"Grouped timeline dates by quarter: {timeline_dates}"
+                )
+            else:
+                # Default to the original dates if no grouping is selected
+                timeline_dates = sorted(set(timeline_dates))
+            # Update the content state with the new timeline dates and root org
+
             content_state["org_timeline_dates"] = timeline_dates
             content_state["root_org"] = (
                 app_state.graph_facade.orgs_repo.find_by_org_id(ministry_id)
@@ -243,9 +325,22 @@ def content():
 
             # Update the date selector and reset other states
             refs["select_date"].set_options(timeline_dates)
+            refs["select_date"].set_value(timeline_dates[0])
             reset_animation()  # Resets state and UI for the new selection
 
             logger.debug(f"Data loaded for Ministry ID {ministry_id}.")
             # Optionally, render the first available chart
             if timeline_dates:
                 render_org_tree(timeline_dates[0])
+
+    def date_grouper_handler(value: str):
+        """Handles the date grouping selection."""
+
+        # Here you would implement the logic to group dates accordingly.
+        # For now, we just log it.
+        content_state["group_by"] = value
+        refs["select_date"].set_value(value)  # Reset selection
+        if content_state["ministry_id"]:
+            # Re-fetch the timeline dates with the new grouping
+            logger.debug(f"Grouping dates by: {value}")
+            fetch_timeline_dates(content_state["ministry_id"])
