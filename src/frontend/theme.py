@@ -52,6 +52,6 @@ def frame(navigation_title: str):
         yield
     with ui.footer().style("background-color: #3874c8"):
         with ui.row().classes("justify-center w-full"):
-            ui.label("© 2025 SGDI Analytics | GahmenSG Suite").classes(
-                "text-center text-white text-sm"
-            )
+            ui.label(
+                "© 2025 SGDI Analytics | GahmenSG Suite EVALUATION MODE"
+            ).classes("text-center text-white text-sm")
