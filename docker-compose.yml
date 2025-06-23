@@ -3,7 +3,7 @@ services:
   searchgov:
     build: .
     ports:
-      - "8080:8080"
+      - "8080:9210"
     volumes:
       - .:/app
     restart: unless-stopped
