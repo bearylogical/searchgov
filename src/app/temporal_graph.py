@@ -58,6 +58,7 @@ class TemporalGraph:
 
         # register the schema manager to ensure the database is ready
         self.register_pgvector()
+        # self.setup_database()
 
     def register_pgvector(self):
         """Register the pgvector extension if not already registered"""

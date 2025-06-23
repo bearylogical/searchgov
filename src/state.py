@@ -15,6 +15,7 @@ load_dotenv()
 # extract env variables for database connection
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_DB = os.getenv("POSTGRES_DB", "temporal_org")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
 
@@ -29,13 +30,17 @@ def initialize_app_state():
         logger.info("🚀 Initializing TemporalGraph facade...")
         # You can pull DB credentials from environment variables or a config
         # file here for better security and flexibility.
-        graph_facade = TemporalGraph(
-            host=POSTGRES_HOST,
-            database=POSTGRES_DB,
-            user=POSTGRES_USER,
-            password=POSTGRES_PASSWORD,
-        )
-        logger.info("✅ TemporalGraph facade initialized.")
+        try:
+            graph_facade = TemporalGraph(
+                host=POSTGRES_HOST,
+                database=POSTGRES_DB,
+                user=POSTGRES_USER,
+                password=POSTGRES_PASSWORD,
+                port=POSTGRES_PORT,
+            )
+            logger.info("✅ TemporalGraph facade initialized.")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize TemporalGraph facade: {e}")
     else:
         logger.warning("⚠️ TemporalGraph facade already initialized.")
 
