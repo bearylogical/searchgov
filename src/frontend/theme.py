@@ -1,7 +1,8 @@
 from contextlib import contextmanager
 
-from nicegui import ui  # Import our registry
+from nicegui import ui, app  # Import our registry
 from src.frontend.registry import PAGES
+from src.auth import handle_logout
 
 
 @contextmanager
@@ -14,9 +15,22 @@ def frame(navigation_title: str):
         "background-color: #3874c8"
     ).classes("items-center justify-between"):
         with ui.row().classes("w-full items-center"):
-            ui.label("SGDI Analytics |").tailwind("text-4xl")
+            ui.label("SGDI Analytics |").on(
+                "click", lambda e: ui.navigate.to("/")
+            ).tailwind("text-4xl cursor-pointer")
             ui.label(navigation_title).tailwind("text-4xl")
             ui.element("div").classes("flex-1")  # Spacer
+
+            if app.storage.user.get("is_authenticated"):
+                # Show the user profile icon if authenticated
+                with ui.element("div").classes("flex items-center gap-2"):
+                    ui.icon("account_circle").classes("text-3xl")
+                    ui.label(
+                        app.storage.user["supabase"]["user"]["email"]
+                    ).tailwind("text-lg")
+                    ui.button(
+                        "Logout", on_click=lambda: handle_logout()
+                    ).tailwind("bg-red-500 text-white px-4 py-2 rounded")
 
             with ui.button(icon="menu"):
                 with ui.menu():
