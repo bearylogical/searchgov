@@ -258,3 +258,27 @@ class OrganisationsRepository(BaseRepository):
                 (parent_org_id, org_id),
             )
             return cur.fetchone() is not None
+
+    def get_org_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about the organizations in the database.
+        Returns a dictionary with counts of total organizations,
+        unique departments, and other relevant metrics.
+        """
+        with self.db.get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total_orgs,
+                       COUNT(DISTINCT department) AS unique_departments
+                FROM organizations;
+                """
+            )
+            result = cur.fetchone()
+            return (
+                {
+                    "total_organizations": result["total_orgs"],
+                    "unique_departments": result["unique_departments"],
+                }
+                if result
+                else {}
+            )

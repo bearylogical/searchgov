@@ -219,3 +219,23 @@ class PeopleRepository(BaseRepository):
                 (query_string, limit),
             )
             return [dict(row) for row in cur.fetchall()]
+
+    def get_name_stats(self) -> Dict[str, Any]:
+        """Get statistics about names in the people table."""
+        with self.db.get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(DISTINCT name) AS unique_names,
+                FROM
+                    people;
+            """
+            )
+            result = cur.fetchone()
+            return (
+                {
+                    "unique_names": result["unique_names"],
+                }
+                if result
+                else {}
+            )

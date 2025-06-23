@@ -285,3 +285,26 @@ class EmploymentRepository(BaseRepository):
             # )
             cur.execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
+
+    def get_employment_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about employment records.
+        Returns a dictionary with counts and other relevant stats.
+        """
+        with self.db.get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total_employments,
+                       COUNT(DISTINCT person_id) AS total_people,
+                       COUNT(DISTINCT org_id) AS total_organizations
+                FROM employment
+            """
+            )
+            result = cur.fetchone()
+            if result:
+                return {
+                    "total_employments": result["total_employments"],
+                    "total_people": result["total_people"],
+                    "total_organizations": result["total_organizations"],
+                }
+            return {}

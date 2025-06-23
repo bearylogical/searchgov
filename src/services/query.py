@@ -3,7 +3,7 @@ from src.database.postgres.connection import DatabaseConnection
 from src.repositories.employment import EmploymentRepository
 from src.repositories.organisations import OrganisationsRepository
 from datetime import datetime
-import logging
+from loguru import logger
 from thefuzz import fuzz  # Added for fuzzywuzzy
 from src.common.utils import recursively_make_hashable
 
@@ -28,7 +28,7 @@ class QueryService:
         org_repo: OrganisationsRepository,
     ):
         self.db = db_connection
-        self.logger = logging.getLogger(__name__)
+        self.logger = logger
         self.employment_repo = employment_repo
         self.org_repo = org_repo
 
@@ -431,6 +431,7 @@ class QueryService:
         fw_pairwise_check_threshold: float = DEFAULT_SECONDARY_PAIRWISE_THRESHOLD,
         min_links_for_pairwise_check: int = DEFAULT_MIN_STRONG_PAIRWISE_LINKS,
         get_parent_orgs: bool = True,
+        cluster_by_rank_and_entity: bool = True,
     ) -> List[Dict]:
         """Get career progression, optionally using fuzzy search for multiple similar names."""
         names_to_query: List[str] = [person_name]
@@ -510,7 +511,57 @@ class QueryService:
             )
             return []
 
+        if cluster_by_rank_and_entity:
+            self.logger.info(
+                f"Clustering career progression by rank and entity name. Initial count: {len(all_progressions)}"
+            )
+            all_progressions = self._deduplicate_employment_profiles(
+                all_progressions,
+            )
+            self.logger.info(
+                f"After clustering, count: {len(all_progressions)}"
+            )
+
         return self._deduplicate_list_of_dicts(all_progressions)
+
+    def _deduplicate_employment_profiles(
+        self,
+        employment_profiles: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Deduplicates employment profiles based on rank and entity name. If the rank and entity name is the same, ensure that the start and end dates are extended to cover the full period.
+        This is useful for cases where a person has multiple employment records with the same rank and entity
+        """
+        if not employment_profiles:
+            return []
+        seen: set[Tuple[str, str]] = set()
+        deduplicated_profiles: List[Dict[str, Any]] = []
+        for profile in employment_profiles:
+            key = (profile["rank"], profile["entity_name"])
+            if key not in seen:
+                seen.add(key)
+                deduplicated_profiles.append(profile)
+            else:
+                # If we have seen this rank and entity before, extend the dates
+                for existing_profile in deduplicated_profiles:
+                    if (
+                        existing_profile["rank"] == profile["rank"]
+                        and existing_profile["entity_name"]
+                        == profile["entity_name"]
+                    ):
+                        existing_profile["start_date"] = min(
+                            existing_profile["start_date"],
+                            profile["start_date"],
+                        )
+                        existing_profile["end_date"] = max(
+                            existing_profile["end_date"],
+                            profile["end_date"],
+                        )
+                        existing_profile["tenure_days"] = (
+                            existing_profile["end_date"]
+                            - existing_profile["start_date"]
+                        ).days
+        return deduplicated_profiles
 
     def get_career_progression_by_person_id(
         self,
