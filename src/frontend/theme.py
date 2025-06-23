@@ -9,7 +9,7 @@ from src.auth import handle_logout
 def frame(navigation_title: str):
     """Custom page frame with a dynamically generated navigation menu."""
     # This is the key addition: It forces the main layout to fill the screen's height.
-    ui.query(".q-layout").style("min-height: 100vh;")
+    ui.query(".q-layout").style("min-height: 100vh; overflow: hidden;")
 
     with ui.header(elevated=True).style(
         "background-color: #3874c8"
@@ -51,4 +51,7 @@ def frame(navigation_title: str):
     ):
         yield
     with ui.footer().style("background-color: #3874c8"):
-        ui.label("FOOTER")
+        with ui.row().classes("justify-center w-full"):
+            ui.label("© 2025 SGDI Analytics | GahmenSG Suite").classes(
+                "text-center text-white text-sm"
+            )

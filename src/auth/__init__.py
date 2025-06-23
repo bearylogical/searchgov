@@ -9,6 +9,7 @@ from gotrue import User, Session
 from dotenv import load_dotenv
 from loguru import logger
 from nicegui import app, helpers, ui
+from src.frontend import theme
 
 load_dotenv()
 
@@ -22,15 +23,29 @@ except Exception as ex:
 
 
 def login_form() -> ui.element:
-    """Create and return the Supabase login form."""
-    with ui.card().classes("w-96 mx-auto"):
-        email = ui.input("Email").props("type=email")
-        password = ui.input("Password").props("type=password")
-        login_btn = ui.button(
-            "Login",
-            on_click=lambda: handle_login(email.value, password.value),
-        )
-        return login_btn
+    with theme.frame("Login"):
+        """Create and return the Supabase login form."""
+        # Center the form both vertically and horizontally using a full-screen row
+        with ui.row().classes("items-center justify-center").style(
+            "object-position: center; height: 80vh;"
+        ):
+            # Create a card with a fixed width and centered
+            with ui.card().classes("w-96 p-8"):
+                email = (
+                    ui.input("Email").props("type=email").classes("w-64")
+                )
+                password = ui.input(
+                    "Password",
+                    placeholder="Enter your password",
+                    password=True,
+                ).classes("w-64")
+                login_btn = ui.button(
+                    "Login",
+                    on_click=lambda: handle_login(
+                        email.value, password.value
+                    ),
+                ).classes("mt-8")
+                return login_btn
 
 
 def handle_login(email: str, password: str):
