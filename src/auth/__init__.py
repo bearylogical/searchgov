@@ -38,6 +38,7 @@ def login_form() -> ui.element:
                     "Password",
                     placeholder="Enter your password",
                     password=True,
+                    password_toggle_button=True,
                 ).classes("w-64")
                 login_btn = ui.button(
                     "Login",
@@ -52,7 +53,13 @@ def handle_login(email: str, password: str):
     """Handle login with Supabase."""
     try:
         result = supabase.auth.sign_in_with_password(
-            {"email": email, "password": password}
+            {
+                "email": email,
+                "password": password,
+                # "options": {
+                #     "emailRedirectTo": f"{SUPABASE_URL}/auth/callback"
+                # },
+            },
         )
         user = result.user
         session = result.session
@@ -73,7 +80,14 @@ def handle_login(email: str, password: str):
             ui.notify("Login failed", type="negative")
     except AuthApiError as e:
         logger.error(f"Supabase login error: {e}")
-        ui.notify("Login failed", type="negative")
+        # Handle specific Supabase authentication errors
+        if "seconds" in str(e):
+            ui.notify(
+                "Login failed: Too many attempts, try again later",
+                type="negative",
+            )
+        else:
+            ui.notify("Login failed", type="negative")
 
 
 def about() -> Dict[str, Any]:
