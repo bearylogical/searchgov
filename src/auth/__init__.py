@@ -157,7 +157,7 @@ class page(ui.page):
             supabase.auth.get_user(session_data.access_token)
             return True
         except Exception:
-            logger.exception("Could not validate user session.")
+            logger.error("Could not validate user session.")
             ui.notify("Session expired or invalid", type="negative")
             return False
 
