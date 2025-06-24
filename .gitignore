@@ -9,3 +9,6 @@ cache/
 archive/
 .env
 .nicegui/
+notebooks/
+models/
+scripts/
