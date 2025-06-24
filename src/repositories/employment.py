@@ -8,25 +8,14 @@ class EmploymentRepository(BaseRepository):
     def __init__(self, db_connection):
         super().__init__(db_connection)
 
-    def create(self, data: Dict[str, Any]) -> Optional[int]:
+    async def create(self, data: Dict[str, Any]) -> Optional[int]:
         """
         Create an employment record.
         If an exact duplicate (based on person_id, org_id, rank, start_date, end_date) exists,
         it updates specified fields (tenure_days, raw_name, metadata).
         Returns the ID of the inserted or updated record.
         """
-        with self.db.get_cursor() as cur:
-            params = {
-                "person_id": data["person_id"],
-                "org_id": data["org_id"],
-                "rank": data.get("rank"),
-                "start_date": data["start_date"],
-                "end_date": data["end_date"],
-                "tenure_days": data.get("tenure_days"),
-                "raw_name": data.get("raw_name", ""),
-                "metadata": json.dumps(data.get("metadata", {})),
-            }
-
+        async with self.db.acquire() as conn:
             # The conflict target (person_id, org_id, (COALESCE(rank, ''::character varying)), start_date, end_date)
             # must exactly match the definition of your unique index.
             # The ::character varying cast for the COALESCE expression ensures type matching.
@@ -36,8 +25,8 @@ class EmploymentRepository(BaseRepository):
                     tenure_days, raw_name, metadata
                 )
                 VALUES (
-                    %(person_id)s, %(org_id)s, %(rank)s, %(start_date)s, %(end_date)s,
-                    %(tenure_days)s, %(raw_name)s, %(metadata)s
+                    $1, $2, $3, $4, $5,
+                    $6, $7, $8
                 )
                 ON CONFLICT (person_id, org_id, (COALESCE(rank, ''::character varying)), start_date, end_date)
                 DO UPDATE SET
@@ -49,8 +38,17 @@ class EmploymentRepository(BaseRepository):
                 RETURNING id;
             """
             try:
-                cur.execute(sql, params)
-                result = cur.fetchone()
+                result = await conn.fetchrow(
+                    sql,
+                    data["person_id"],
+                    data["org_id"],
+                    data.get("rank"),
+                    data["start_date"],
+                    data["end_date"],
+                    data.get("tenure_days"),
+                    data.get("raw_name", ""),
+                    json.dumps(data.get("metadata", {})),
+                )
                 return result["id"] if result else None
             except Exception as e:
                 self.logger.error(
@@ -59,21 +57,20 @@ class EmploymentRepository(BaseRepository):
                 )
                 raise
 
-    def find_by_employment_id(
+    async def find_by_employment_id(
         self, record_id: int
     ) -> Optional[Dict[str, Any]]:  # Renamed id to record_id
-        with self.db.get_cursor() as cur:
-            cur.execute(
+        async with self.db.acquire() as conn:
+            result = await conn.fetchrow(
                 """
                 SELECT e.*, p.name as person_name, o.name as org_name
                 FROM employment e
                 JOIN people p ON e.person_id = p.id
                 JOIN organizations o ON e.org_id = o.id
-                WHERE e.id = %s
+                WHERE e.id = $1
             """,
-                (record_id,),
+                record_id,
             )
-            result = cur.fetchone()
             if result:
                 res_dict = dict(result)
                 if isinstance(res_dict.get("metadata"), str):
@@ -88,22 +85,24 @@ class EmploymentRepository(BaseRepository):
                 return res_dict
             return None
 
-    def find_by_person_id(self, person_id: int) -> List[Dict[str, Any]]:
+    async def find_by_person_id(
+        self, person_id: int
+    ) -> List[Dict[str, Any]]:
         """Find all employment records for a person"""
-        with self.db.get_cursor() as cur:
-            cur.execute(
+        async with self.db.acquire() as conn:
+            rows = await conn.fetch(
                 """
                 SELECT e.*, p.name as person_name, o.name as org_name, o.metadata as org_metadata, o.id as org_id
                 FROM employment e
                 JOIN people p ON e.person_id = p.id
                 JOIN organizations o ON e.org_id = o.id
-                WHERE e.person_id = %s
+                WHERE e.person_id = $1
                 ORDER BY e.start_date
             """,
-                (person_id,),
+                person_id,
             )
             results = []
-            for row in cur.fetchall():
+            for row in rows:
                 res_dict = dict(row)
                 if isinstance(res_dict.get("metadata"), str):
                     try:
@@ -123,21 +122,22 @@ class EmploymentRepository(BaseRepository):
             "Employment doesn't have a single name field"
         )
 
-    def find_by_person_and_org(
+    async def find_by_person_and_org(
         self, person_id: int, org_id: int
     ) -> List[Dict[str, Any]]:
         """Find all employment records for a person at an organization"""
-        with self.db.get_cursor() as cur:
-            cur.execute(
+        async with self.db.acquire() as conn:
+            rows = await conn.fetch(
                 """
                 SELECT * FROM employment 
-                WHERE person_id = %s AND org_id = %s
+                WHERE person_id = $1 AND org_id = $2
                 ORDER BY start_date
             """,
-                (person_id, org_id),
+                person_id,
+                org_id,
             )
             results = []
-            for row in cur.fetchall():
+            for row in rows:
                 res_dict = dict(row)
                 if isinstance(res_dict.get("metadata"), str):
                     try:
@@ -151,21 +151,20 @@ class EmploymentRepository(BaseRepository):
                 results.append(res_dict)
             return results
 
-    def find_most_recent_end_date(self) -> Optional[str]:
+    async def find_most_recent_end_date(self) -> Optional[str]:
         """Get the most recent end date across all employment records"""
-        with self.db.get_cursor() as cur:
-            cur.execute(
+        async with self.db.acquire() as conn:
+            result = await conn.fetchrow(
                 """
                 SELECT MAX(end_date) as most_recent_end_date
                 FROM employment
             """
             )
-            result = cur.fetchone()
             if result and result["most_recent_end_date"]:
                 return result["most_recent_end_date"].isoformat()
             return None
 
-    def find_people_with_overlapping_employment(
+    async def find_people_with_overlapping_employment(
         self,
         person_ids: Union[int, List[int]],
         name_filter: Optional[str] = None,
@@ -199,7 +198,7 @@ class EmploymentRepository(BaseRepository):
         if not source_person_ids:
             return []
 
-        with self.db.get_cursor() as cur:
+        async with self.db.acquire() as conn:
             # This query is complex, so let's break it down with CTEs:
             # 1. `source_employments`: Gathers all employment records for the
             #    input person(s).
@@ -216,7 +215,7 @@ class EmploymentRepository(BaseRepository):
                 source_employments AS (
                     SELECT org_id, start_date, end_date
                     FROM employment
-                    WHERE person_id IN %(source_person_ids)s
+                    WHERE person_id = ANY($1)
                 ),
                 descendant_orgs AS (
                     -- Base case: Orgs where the source people worked
@@ -252,7 +251,7 @@ class EmploymentRepository(BaseRepository):
                 JOIN employment e2 ON p.id = e2.person_id
                 WHERE
                     -- Exclude the source person(s) from the results
-                    p.id NOT IN %(source_person_ids)s
+                    p.id <> ALL($1)
                     -- Filter to employments within the same org hierarchy
                     AND e2.org_id IN (SELECT id FROM org_family)
                     -- Check for any time overlap with any of the source employments
@@ -263,36 +262,36 @@ class EmploymentRepository(BaseRepository):
                               daterange(e2.start_date, e2.end_date, '[]')
                     )
             """
-            # Parameters for the query. Using a tuple for the IN clause.
-            params = {"source_person_ids": tuple(source_person_ids)}
+            # Parameters for the query.
+            params = [source_person_ids]
 
             # Dynamically add the name filter if it exists
             if name_filter:
-                sql += " AND p.name ILIKE %(name_filter)s"
-                params["name_filter"] = f"%{name_filter}%"
+                sql += f" AND p.name ILIKE ${len(params) + 1}"
+                params.append(f"%{name_filter}%")
 
             # Always order for consistent results.
             sql += " ORDER BY p.name ASC, e2.start_date ASC"
 
             # Only apply the limit if we are NOT filtering by name
             if not name_filter:
-                sql += " LIMIT %(limit)s"
-                params["limit"] = limit
+                sql += f" LIMIT ${len(params) + 1}"
+                params.append(limit)
 
             # self.logger.debug(
             #     "Executing find_people_with_overlapping_employment with params: "
             #     f"{params} and SQL: {sql}"
             # )
-            cur.execute(sql, params)
-            return [dict(row) for row in cur.fetchall()]
+            rows = await conn.fetch(sql, *params)
+            return [dict(row) for row in rows]
 
-    def get_employment_stats(self) -> Dict[str, Any]:
+    async def get_employment_stats(self) -> Dict[str, Any]:
         """
         Get statistics about employment records.
         Returns a dictionary with counts and other relevant stats.
         """
-        with self.db.get_cursor() as cur:
-            cur.execute(
+        async with self.db.acquire() as conn:
+            result = await conn.fetchrow(
                 """
                 SELECT COUNT(*) AS total_employments,
                        COUNT(DISTINCT person_id) AS total_people,
@@ -300,11 +299,9 @@ class EmploymentRepository(BaseRepository):
                 FROM employment
             """
             )
-            result = cur.fetchone()
             if result:
                 return {
                     "total_employments": result["total_employments"],
                     "total_people": result["total_people"],
                     "total_organizations": result["total_organizations"],
                 }
-            return {}

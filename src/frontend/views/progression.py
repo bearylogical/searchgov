@@ -3,7 +3,7 @@
 import asyncio
 from typing import Any, Dict, Optional
 
-from nicegui import ui, run
+from nicegui import ui
 from loguru import logger
 
 import src.frontend.theme as theme
@@ -11,6 +11,16 @@ import src.state as app_state
 from src.frontend.components import profile_display
 
 running_query_a: Optional[asyncio.Task] = None
+
+# Define Tailwind classes for reuse
+RED_CHIP = (
+    "bg-red-100 text-red-800 text-sm font-medium me-2 px-2.5 py-0.5 "
+    "rounded-sm dark:bg-red-900 dark:text-red-300"
+)
+GREEN_CHIP = (
+    "bg-green-100 text-green-800 text-sm font-medium me-2 px-2.5 py-0.5 "
+    "rounded-sm dark:bg-green-900 dark:text-green-300"
+)
 
 
 @ui.page("/progression")
@@ -59,12 +69,12 @@ async def content() -> None:
         if running_query_a:
             running_query_a.cancel()
 
-        coro = run.io_bound(
-            app_state.graph_facade.find_person_by_name,
-            search_term,
-            is_fuzzy=True,
+        task = asyncio.create_task(
+            app_state.graph_facade.find_person_by_name(
+                search_term,
+                is_fuzzy=True,
+            )
         )
-        task = asyncio.create_task(coro)
         running_query_a = task
         try:
             people = await task
@@ -88,15 +98,16 @@ async def content() -> None:
                                     person.get("linked_organizations", [])
                                 )
                             )
+                            logger.debug(
+                                f"Parent entity for {person['name']}: {parent_entity}"
+                            )
                             if parent_entity["acronym"] != "UNK":
                                 ui.label(parent_entity["acronym"]).tailwind(
-                                    "bg-red-100 text-red-800 text-sm font-medium me-2 px-2.5 py-0.5 rounded-sm dark:bg-red-900 dark:text-red-300"
+                                    RED_CHIP
                                 )
                             ui.label(
                                 person["employment_profile"][-1]["org_name"]
-                            ).tailwind(
-                                "bg-green-100 text-green-800 text-sm font-medium me-2 px-2.5 py-0.5 rounded-sm dark:bg-green-900 dark:text-green-300"
-                            )
+                            ).tailwind(GREEN_CHIP)
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -113,9 +124,10 @@ async def content() -> None:
         refs["search_results_a"].clear()
         ui.notify(f"Selected {person['name']}", type="positive")
 
-        employment_profile = await run.io_bound(
-            app_state.graph_facade.get_career_progression_by_name,
-            person["name"],
+        employment_profile = (
+            await app_state.graph_facade.get_career_progression_by_name(
+                person["name"]
+            )
         )
         if employment_profile:
             employment_profile.sort(

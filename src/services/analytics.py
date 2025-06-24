@@ -1,5 +1,7 @@
 from typing import List, Dict, Any
-from src.database.postgres.connection import DatabaseConnection
+from src.database.postgres.connection import (
+    AsyncDatabaseConnection as DatabaseConnection,
+)
 import logging
 
 
@@ -8,22 +10,19 @@ class AnalyticsService:
         self.db = db_connection
         self.logger = logging.getLogger(__name__)
 
-    def analyze_organization_turnover(
+    async def analyze_organization_turnover(
         self, org_name: str, start_date: str = None, end_date: str = None
     ) -> Dict:
         """Analyze turnover patterns"""
         try:
-            with self.db.get_cursor() as cur:
-                date_filter = ""
-                params = [org_name]
+            date_filter = ""
+            params = [org_name]
 
-                if start_date and end_date:
-                    date_filter = (
-                        "AND e.start_date >= %s AND e.end_date <= %s"
-                    )
-                    params.extend([start_date, end_date])
+            if start_date and end_date:
+                date_filter = "AND e.start_date >= $2 AND e.end_date <= $3"
+                params.extend([start_date, end_date])
 
-                query = f"""
+            query = f"""
                     SELECT 
                         p.name as employee_name,
                         e.rank,
@@ -33,47 +32,46 @@ class AnalyticsService:
                     FROM employment e
                     JOIN people p ON e.person_id = p.id
                     JOIN organizations o ON e.org_id = o.id
-                    WHERE o.name = %s
+                    WHERE o.name = $1
                     {date_filter}
                     ORDER BY e.start_date
                 """
 
-                cur.execute(query, params)
-                employees = [dict(row) for row in cur.fetchall()]
+            rows = await self.db.fetch(query, *params)
+            employees = [dict(row) for row in rows]
 
-                if employees:
-                    tenure_days = [
-                        emp["tenure_days"]
-                        for emp in employees
-                        if emp["tenure_days"]
-                    ]
-                    avg_tenure = (
-                        sum(tenure_days) / len(tenure_days)
-                        if tenure_days
-                        else 0
-                    )
+            if employees:
+                tenure_days = [
+                    emp["tenure_days"]
+                    for emp in employees
+                    if emp["tenure_days"]
+                ]
+                avg_tenure = (
+                    sum(tenure_days) / len(tenure_days)
+                    if tenure_days
+                    else 0
+                )
 
-                    return {
-                        "organization": org_name,
-                        "total_employees": len(employees),
-                        "avg_tenure_days": avg_tenure,
-                        "employees": employees,
-                    }
+                return {
+                    "organization": org_name,
+                    "total_employees": len(employees),
+                    "avg_tenure_days": avg_tenure,
+                    "employees": employees,
+                }
 
-                return {"organization": org_name, "total_employees": 0}
+            return {"organization": org_name, "total_employees": 0}
 
         except Exception as e:
             self.logger.error(f"Error analyzing turnover: {e}")
             return {"error": str(e)}
 
-    def find_succession_patterns(
+    async def find_succession_patterns(
         self, max_gap_days: int = 90
     ) -> List[Dict]:
         """Find succession patterns"""
         try:
-            with self.db.get_cursor() as cur:
-                cur.execute(
-                    """
+            rows = await self.db.fetch(
+                """
                     SELECT 
                         o.name as organization,
                         e1.rank as role,
@@ -89,14 +87,16 @@ class AnalyticsService:
                     JOIN organizations o ON e1.org_id = o.id
                     WHERE p1.name != p2.name
                     AND e2.start_date > e1.end_date
-                    AND e2.start_date - e1.end_date <= %s
+                    AND e2.start_date - e1.end_date <= $1
                     ORDER BY gap_days
                 """,
-                    (max_gap_days,),
-                )
+                max_gap_days,
+            )
 
-                return [dict(row) for row in cur.fetchall()]
+            return [dict(row) for row in rows]
 
         except Exception as e:
+            self.logger.error(f"Error finding succession patterns: {e}")
+            return []
             self.logger.error(f"Error finding succession patterns: {e}")
             return []

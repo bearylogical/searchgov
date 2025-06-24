@@ -22,7 +22,7 @@ class GraphService:
         self._full_graph_cache = None  # --- ADDED: Cache for the new graph
         self._colleague_graph_cache = None
 
-    def _build_colleague_graph(self) -> nx.Graph:
+    async def _build_colleague_graph(self) -> nx.Graph:
         """
         Builds a time-aware, person-to-person graph where an edge
         represents a direct, overlapping employment period at the same org.
@@ -34,7 +34,7 @@ class GraphService:
             return self._colleague_graph_cache
 
         self.logger.info("Building new colleague graph...")
-        all_data = self.query_service.get_all_employment_data()
+        all_data = await self.query_service.get_all_employment_data()
 
         # Step 1: Group all employments by organization
         org_employees = defaultdict(list)
@@ -88,7 +88,7 @@ class GraphService:
         self._colleague_graph_cache = G_colleagues
         return G_colleagues
 
-    def build_full_history_graph(self) -> nx.MultiDiGraph:
+    async def build_full_history_graph(self) -> nx.MultiDiGraph:
         """
         Builds a NetworkX graph from the entire history of employment data.
         This implementation creates unique node IDs by prefixing them with
@@ -99,8 +99,10 @@ class GraphService:
             return self._full_graph_cache
 
         try:
-            all_data = self.query_service.get_all_employment_data()
-            org_hierarchy = self.orgs_service.get_organization_hierarchy()
+            all_data = await self.query_service.get_all_employment_data()
+            org_hierarchy = (
+                await self.orgs_service.get_organization_hierarchy()
+            )
 
             G = nx.MultiDiGraph()
 
@@ -147,7 +149,7 @@ class GraphService:
             self.logger.error(f"Error building full history graph: {e}")
             raise
 
-    def build_networkx_graph(
+    async def build_networkx_graph(
         self, target_date: str = None
     ) -> nx.MultiDiGraph:
         """
@@ -159,8 +161,12 @@ class GraphService:
 
         try:
             # Step 1: Get data (assuming it includes IDs)
-            snapshot = self.query_service.get_network_snapshot(target_date)
-            org_hierarchy = self.orgs_service.get_organization_hierarchy()
+            snapshot = await self.query_service.get_network_snapshot(
+                target_date
+            )
+            org_hierarchy = (
+                await self.orgs_service.get_organization_hierarchy()
+            )
 
             G = nx.MultiDiGraph()
 
@@ -208,7 +214,7 @@ class GraphService:
             self.logger.error(f"Error building NetworkX graph: {e}")
             raise
 
-    def find_shortest_path(
+    async def find_shortest_path(
         self,
         person1_ids: Union[int, List[int]],
         person2_ids: Union[int, List[int]],
@@ -240,7 +246,7 @@ class GraphService:
         target_ids = [f"person_{pid}" for pid in target_ids_int]
 
         # Use the new time-agnostic graph builder
-        G = self.build_full_history_graph()
+        G = await self.build_full_history_graph()
         shortest_path_ids = None
 
         # The rest of the logic remains the same...
@@ -313,7 +319,7 @@ class GraphService:
 
             return path_names
 
-    def find_shortest_temporal_path(
+    async def find_shortest_temporal_path(
         self,
         person1_ids: Union[int, List[int]],
         person2_ids: Union[int, List[int]],
@@ -333,9 +339,9 @@ class GraphService:
             Returns an empty list if no such path exists.
         """
         # Step 1: Build or retrieve the specialized colleague graph
-        colleague_G = self._build_colleague_graph()
+        colleague_G = await self._build_colleague_graph()
         full_G = (
-            self.build_full_history_graph()
+            await self.build_full_history_graph()
         )  # Ensures we can get org names
 
         # Step 2: Normalize inputs and format node IDs
@@ -441,18 +447,17 @@ class GraphService:
                         final_path_names.append(
                             full_G.nodes[node_id]["name"]
                         )
+
             return final_path_names
 
-            # Return names
-
-    def calculate_centrality_metrics(
+    async def calculate_centrality_metrics(
         self, target_date: str = None
     ) -> Dict[str, Dict]:
         """
         Calculate centrality metrics on a graph of people connected through
         the full organizational hierarchy.
         """
-        G = self.build_networkx_graph(target_date)
+        G = await self.build_networkx_graph(target_date)
         if not G:
             return {}
 
