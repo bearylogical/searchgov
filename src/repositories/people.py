@@ -173,7 +173,7 @@ class PeopleRepository(BaseRepository):
                 rows = await conn.fetch(
                     """
                     SELECT *, 1 - (embedding <=> $1) as distance
-                    FROM people 
+                    FROM people
                     WHERE embedding IS NOT NULL
                     ORDER BY distance DESC
                     LIMIT $2
