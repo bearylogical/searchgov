@@ -96,6 +96,14 @@ class OrganisationsRepository(BaseRepository):
         Recursively get all descendant organizations for a given parent ID
         that were active on a specific date.
         """
+        import datetime
+
+        if isinstance(target_date, str):
+            target_date_obj = datetime.datetime.strptime(
+                target_date, "%Y-%m-%d"
+            ).date()
+        else:
+            target_date_obj = target_date
         async with self.db.acquire() as conn:
             # This query first builds the entire descendant tree, then filters
             # it based on the temporal data in the metadata JSONB field.
@@ -118,7 +126,7 @@ class OrganisationsRepository(BaseRepository):
                     AND $2::date <= COALESCE((metadata->>'last_observed')::date, '9999-12-31'::date);
                 """,
                 parent_org_id,
-                target_date,
+                target_date_obj,
             )
             return [self._row_to_dict(row) for row in rows]
 

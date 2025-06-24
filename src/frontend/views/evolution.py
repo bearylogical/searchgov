@@ -335,7 +335,7 @@ async def content():
             logger.debug(f"Data loaded for Ministry ID {ministry_id}.")
             # Optionally, render the first available chart
             if timeline_dates:
-                render_org_tree(timeline_dates[0])
+                await render_org_tree(timeline_dates[0])
 
     def date_grouper_handler(value: str):
         """Handles the date grouping selection."""
