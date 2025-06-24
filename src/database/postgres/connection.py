@@ -1,4 +1,3 @@
-# database/connection.py
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
@@ -14,6 +13,8 @@ class DatabaseConnection:
         user: str = "postgres",
         password: str = "password",
         port: int = 5432,
+        minconn: int = 1,
+        maxconn: int = 10,
     ):
         self.connection_params = {
             "host": host,
@@ -24,13 +25,15 @@ class DatabaseConnection:
         }
         self.pool = None
         self.logger = logger
+        self.minconn = minconn
+        self.maxconn = maxconn
         self.connect()
 
     def connect(self):
         """Establish connection pool to PostgreSQL"""
         try:
             self.pool = psycopg2.pool.SimpleConnectionPool(
-                1, 10, **self.connection_params
+                self.minconn, self.maxconn, **self.connection_params
             )
             self.logger.info("Connected to PostgreSQL successfully")
         except Exception as e:
@@ -39,10 +42,21 @@ class DatabaseConnection:
 
     @contextmanager
     def get_cursor(self, cursor_factory=None):
-        """Context manager for database cursors"""
+        """Context manager for database cursors with connection validation"""
         conn = None
         try:
             conn = self.pool.getconn()
+            # Validate connection
+            try:
+                with conn.cursor() as test_cursor:
+                    test_cursor.execute("SELECT 1")
+            except (psycopg2.InterfaceError, psycopg2.OperationalError):
+                self.logger.warning("Connection lost, reconnecting...")
+                self.pool.putconn(conn, close=True)
+                conn = self.pool.getconn()
+                with conn.cursor() as test_cursor:
+                    test_cursor.execute("SELECT 1")
+            # Now get the actual cursor for use
             cursor = conn.cursor(
                 cursor_factory=cursor_factory or RealDictCursor
             )
