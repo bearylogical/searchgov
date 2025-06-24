@@ -19,7 +19,7 @@ running_query_b: Optional[asyncio.Task] = None
 
 
 @ui.page("/connectivity")
-def content() -> None:
+async def content() -> None:
     refs = {}
     wizard_state = {
         "person_a": None,

@@ -17,7 +17,7 @@ import json
 # create_radial_tree_chart = Mock()
 
 
-def content():
+async def content():
     """Content for the Organizational Evolution page."""
 
     with theme.frame("Organizational Evolution"):

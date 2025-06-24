@@ -14,7 +14,7 @@ running_query_a: Optional[asyncio.Task] = None
 
 
 @ui.page("/progression")
-def content() -> None:
+async def content() -> None:
     refs = {}
     wizard_state = {
         "person_a": None,

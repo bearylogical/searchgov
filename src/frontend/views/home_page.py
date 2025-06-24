@@ -3,7 +3,7 @@ from src.frontend import theme
 
 
 @ui.page("/")
-def content():
+async def content():
     """Content for the Home page."""
 
     with theme.frame("SGDI Analytics Home"):
