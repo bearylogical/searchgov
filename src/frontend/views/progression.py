@@ -100,6 +100,7 @@ def content() -> None:
         except asyncio.CancelledError:
             pass
         except Exception as e:
+            logger.error(f"Error during search: {e}")
             ui.notify(
                 f"An error occurred during search: {e}", type="negative"
             )
