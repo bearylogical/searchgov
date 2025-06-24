@@ -133,7 +133,7 @@ class TemporalGraph:
                     )
                     if not linked_orgs:
                         self.logger.warning(
-                            f"No linked organizations found for person ID {person['id']} {person}"
+                            f"No linked organizations found for person ID {person['id']} {person['name']} with org ID {person['employment_profile'][-1]['org_id']}"
                         )
                         linked_orgs = [
                             await self.orgs_repo.find_by_org_id(
