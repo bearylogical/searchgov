@@ -4,7 +4,7 @@ import asyncio
 from datetime import date
 from typing import Any, Dict, Optional
 
-from nicegui import ui, run
+from nicegui import ui
 from loguru import logger
 
 import src.frontend.theme as theme
@@ -16,6 +16,16 @@ from src.frontend.components.profile_display import Profile
 
 running_query_a: Optional[asyncio.Task] = None
 running_query_b: Optional[asyncio.Task] = None
+
+# Define Tailwind classes for reuse
+RED_CHIP = (
+    "bg-red-100 text-red-800 text-sm font-medium me-2 px-2.5 py-0.5 "
+    "rounded-sm dark:bg-red-900 dark:text-red-300"
+)
+GREEN_CHIP = (
+    "bg-green-100 text-green-800 text-sm font-medium me-2 px-2.5 py-0.5 "
+    "rounded-sm dark:bg-green-900 dark:text-green-300"
+)
 
 
 @ui.page("/connectivity")
@@ -88,9 +98,10 @@ async def content() -> None:
             type="positive",
         )
 
-        employment_profile = await run.io_bound(
-            app_state.graph_facade.get_career_progression_by_name,
-            person["name"],
+        employment_profile = (
+            await app_state.graph_facade.get_career_progression_by_name(
+                person["name"]
+            )
         )
         if employment_profile:
             employment_profile.sort(
@@ -115,12 +126,12 @@ async def content() -> None:
         if running_query_a:
             running_query_a.cancel()
 
-        coro = run.io_bound(
-            app_state.graph_facade.find_person_by_name,
-            search_term,
-            is_fuzzy=True,
+        task = asyncio.create_task(
+            app_state.graph_facade.find_person_by_name(
+                search_term,
+                is_fuzzy=True,
+            )
         )
-        task = asyncio.create_task(coro)
         running_query_a = task
         try:
             people = await task
@@ -147,13 +158,11 @@ async def content() -> None:
                             )
                             if parent_entity["acronym"] != "UNK":
                                 ui.label(parent_entity["acronym"]).tailwind(
-                                    "bg-red-100 text-red-800 text-sm font-medium me-2 px-2.5 py-0.5 rounded-sm dark:bg-red-900 dark:text-red-300"
+                                    RED_CHIP
                                 )
                             ui.label(
                                 person["employment_profile"][-1]["org_name"]
-                            ).tailwind(
-                                "bg-green-100 text-green-800 text-sm font-medium me-2 px-2.5 py-0.5 rounded-sm dark:bg-green-900 dark:text-green-300"
-                            )
+                            ).tailwind(GREEN_CHIP)
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -172,12 +181,12 @@ async def content() -> None:
         if running_query_b:
             running_query_b.cancel()
 
-        coro = run.io_bound(
-            app_state.graph_facade.find_person_by_name,
-            search_term,
-            is_fuzzy=True,
+        task = asyncio.create_task(
+            app_state.graph_facade.find_person_by_name(
+                search_term,
+                is_fuzzy=True,
+            )
         )
-        task = asyncio.create_task(coro)
         running_query_b = task
         try:
             people = await task
@@ -203,13 +212,11 @@ async def content() -> None:
                                 )
                             )
                             ui.label(parent_entity["acronym"]).tailwind(
-                                "bg-red-100 text-red-800 text-sm font-medium me-2 px-2.5 py-0.5 rounded-sm dark:bg-red-900 dark:text-red-300"
+                                RED_CHIP
                             )
                             ui.label(
                                 person["employment_profile"][-1]["org_name"]
-                            ).tailwind(
-                                "bg-green-100 text-green-800 text-sm font-medium me-2 px-2.5 py-0.5 rounded-sm dark:bg-green-900 dark:text-green-300"
-                            )
+                            ).tailwind(GREEN_CHIP)
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -251,8 +258,7 @@ async def content() -> None:
                 ui.label("Finding the shortest path...").classes("ml-4")
 
         try:
-            path = await run.io_bound(
-                app_state.graph_facade.find_shortest_path,
+            path = await app_state.graph_facade.find_shortest_path(
                 person_a.ids,
                 person_b.ids,
             )
@@ -267,7 +273,8 @@ async def content() -> None:
                         "text-xl mb-2"
                     )
                     ui.label(
-                        f"It takes {len(path) //2 - 1} people to connect {person_a.anchor_name} and {person_b.anchor_name}."
+                        f"It takes {len(path) // 2 - 1} people to connect "
+                        f"{person_a.anchor_name} and {person_b.anchor_name}."
                     ).classes("text-sm text-gray-500 mb-4")
                     # logger.info(path)
                     with ui.row().classes("items-center gap-2"):

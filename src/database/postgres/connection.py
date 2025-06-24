@@ -1,11 +1,8 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from contextlib import contextmanager
+import asyncpg
 from loguru import logger
-import psycopg2.pool
 
 
-class DatabaseConnection:
+class AsyncDatabaseConnection:
     def __init__(
         self,
         host: str = "localhost",
@@ -13,8 +10,8 @@ class DatabaseConnection:
         user: str = "postgres",
         password: str = "password",
         port: int = 5432,
-        minconn: int = 1,
-        maxconn: int = 10,
+        min_size: int = 1,
+        max_size: int = 10,
     ):
         self.connection_params = {
             "host": host,
@@ -23,94 +20,48 @@ class DatabaseConnection:
             "password": password,
             "port": port,
         }
+        self.pool_params = {
+            "min_size": min_size,
+            "max_size": max_size,
+        }
         self.pool = None
-        self.logger = logger
-        self.minconn = minconn
-        self.maxconn = maxconn
-        self.connect()
 
-    def connect(self):
-        """Establish connection pool to PostgreSQL"""
+    async def connect(self):
         try:
-            self.pool = psycopg2.pool.SimpleConnectionPool(
-                self.minconn, self.maxconn, **self.connection_params
-            )
-            self.logger.info("Connected to PostgreSQL successfully")
-        except Exception as e:
-            self.logger.error(f"Error connecting to PostgreSQL: {e}")
-            raise
-
-    @contextmanager
-    def get_cursor(self, cursor_factory=None):
-        """Context manager for database cursors with connection validation"""
-        conn = None
-        try:
-            conn = self.pool.getconn()
-            # Validate connection
-            try:
-                with conn.cursor() as test_cursor:
-                    test_cursor.execute("SELECT 1")
-            except (psycopg2.InterfaceError, psycopg2.OperationalError):
-                self.logger.warning("Connection lost, reconnecting...")
-                self.pool.putconn(conn, close=True)
-                conn = self.pool.getconn()
-                with conn.cursor() as test_cursor:
-                    test_cursor.execute("SELECT 1")
-            # Now get the actual cursor for use
-            cursor = conn.cursor(
-                cursor_factory=cursor_factory or RealDictCursor
-            )
-            try:
-                yield cursor
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                self.logger.error(f"Database operation failed: {e}")
-                raise
-            finally:
-                cursor.close()
-        finally:
-            if conn:
-                self.pool.putconn(conn)
-
-    def execute_with_retry(
-        self, query, params=None, cursor_factory=None, retries=1
-    ):
-        """
-        Helper to execute a query with automatic reconnection/retry.
-        """
-        attempt = 0
-        while attempt <= retries:
-            try:
-                with self.get_cursor(cursor_factory) as cursor:
-                    cursor.execute(query, params)
-                    if cursor.description:
-                        return cursor.fetchall()
-                    return None
-            except (
-                psycopg2.InterfaceError,
-                psycopg2.OperationalError,
-            ) as e:
-                self.logger.warning(
-                    f"Connection lost: {e}. Retrying ({attempt+1}/{retries})..."
+            if not self.pool:
+                self.pool = await asyncpg.create_pool(
+                    **self.connection_params, **self.pool_params
                 )
-                attempt += 1
-                if attempt > retries:
-                    raise
-            except Exception:
-                raise
-
-    @contextmanager
-    def transaction(self):
-        """Context manager for transactions (use with get_cursor)"""
-        try:
-            yield
+                logger.info("Database connection pool created.")
         except Exception as e:
-            self.logger.error(f"Transaction failed: {e}")
+            logger.error(f"Could not connect to database: {e}")
             raise
 
-    def close(self):
-        """Close all connections in the pool"""
+    async def close(self):
         if self.pool:
-            self.pool.closeall()
-            self.logger.info("Database connection pool closed")
+            await self.pool.close()
+            logger.info("Database connection pool closed.")
+
+    async def fetch(self, query, *args):
+        async with self.pool.acquire() as connection:
+            return await connection.fetch(query, *args)
+
+    async def fetchrow(self, query, *args):
+        async with self.pool.acquire() as connection:
+            return await connection.fetchrow(query, *args)
+
+    async def execute(self, query, *args):
+        async with self.pool.acquire() as connection:
+            return await connection.execute(query, *args)
+
+    def transaction(self):
+        """Provides a context manager for a transaction."""
+        if not self.pool:
+            raise ConnectionError("Connection pool is not initialized.")
+        return self.pool.transaction()
+
+    def acquire(self):
+        """Provides a context manager to acquire a connection from the pool."""
+        if not self.pool:
+            raise ConnectionError("Connection pool is not initialized.")
+        return self.pool.acquire()

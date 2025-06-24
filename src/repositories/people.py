@@ -8,15 +8,15 @@ DEFAULT_MIN_SIMILARITY_THRESHOLD_REPO = 0.3
 
 
 class PeopleRepository(BaseRepository):
-    def create(self, data: Dict[str, Any]) -> Optional[int]:
+    async def create(self, data: Dict[str, Any]) -> Optional[int]:
         """Create or update a person record"""
-        with self.db.get_cursor() as cur:
+        async with self.db.acquire() as conn:
             disambiguation_key = data.get("disambiguation_key", 1)
 
-            cur.execute(
+            result = await conn.fetchrow(
                 """
                 INSERT INTO people (name, clean_name, tel, email, disambiguation_key, metadata)
-                VALUES (%(name)s, %(clean_name)s, %(tel)s, %(email)s, %(disambiguation_key)s, %(metadata)s)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 -- MODIFIED: The conflict target is now the composite key
                 ON CONFLICT (name, disambiguation_key) DO UPDATE SET
                     clean_name = EXCLUDED.clean_name,
@@ -26,32 +26,31 @@ class PeopleRepository(BaseRepository):
                     updated_at = CURRENT_TIMESTAMP
                 RETURNING id;
             """,
-                {
-                    "name": data["name"],
-                    "clean_name": data["clean_name"],
-                    "tel": data.get("tel"),
-                    "email": data.get("email"),
-                    "disambiguation_key": disambiguation_key,
-                    "metadata": json.dumps(data.get("metadata", {})),
-                },
+                data["name"],
+                data["clean_name"],
+                data.get("tel"),
+                data.get("email"),
+                disambiguation_key,
+                json.dumps(data.get("metadata", {})),
             )
-            result = cur.fetchone()
             return result["id"] if result else None
 
-    def find_by_person_id(self, id: int) -> Optional[Dict[str, Any]]:
-        with self.db.get_cursor() as cur:
-            cur.execute("SELECT * FROM people WHERE id = %s", (id,))
-            row = cur.fetchone()  # Fetch once
+    async def find_by_person_id(self, id: int) -> Optional[Dict[str, Any]]:
+        async with self.db.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM people WHERE id = $1", id
+            )
             return dict(row) if row else None
 
-    def find_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+    async def find_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         # This remains for exact, single-record lookups
-        with self.db.get_cursor() as cur:
-            cur.execute("SELECT * FROM people WHERE name = %s", (name,))
-            result = cur.fetchone()  # Fetch once
+        async with self.db.acquire() as conn:
+            result = await conn.fetchrow(
+                "SELECT * FROM people WHERE name = $1", name
+            )
             return dict(result) if result else None
 
-    def search_by_name_fuzzy(
+    async def search_by_name_fuzzy(
         self,
         name_query: str,
         limit: int = 10,
@@ -64,47 +63,42 @@ class PeopleRepository(BaseRepository):
         Requires the pg_trgm extension to be enabled in PostgreSQL for trigram search.
         """
         try:
-            with self.db.get_cursor() as cur:
+            async with self.db.acquire() as conn:
                 # Attempt trigram similarity search
-                # The 'name %% %(name_query)s' condition helps leverage GIN/GiST trigram indexes.
-                # The 'similarity(name, %(name_query)s) >= %(threshold)s' is the actual threshold filter.
-                cur.execute(
+                # The 'name % $1' condition helps leverage GIN/GiST trigram indexes.
+                # The 'similarity(name, $1) >= $2' is the actual threshold filter.
+                results = await conn.fetch(
                     """
-                    SELECT *, similarity(name, %(name_query)s) as sim_score
+                    SELECT *, similarity(name::text, $1) as sim_score
                     FROM people
-                    WHERE name %% %(name_query)s AND similarity(name, %(name_query)s) >= %(threshold)s
+                    WHERE name::text % $1 AND similarity(name::text, $1) >= $2
                     ORDER BY sim_score DESC
-                    LIMIT %(limit)s;
+                    LIMIT $3;
                     """,
-                    {
-                        "name_query": name_query,
-                        "threshold": min_similarity_threshold,
-                        "limit": limit,
-                    },
+                    name_query,
+                    min_similarity_threshold,
+                    limit,
                 )
-                results = [dict(row) for row in cur.fetchall()]
-                return results
+                return [dict(row) for row in results]
         except Exception as e:
             # psycopg2.errors.UndefinedFunction (SQLSTATE 42883) indicates
-            # pg_trgm functions (similarity, %%) are not available.
+            # pg_trgm functions (similarity, %) are not available.
             if hasattr(e, "pgcode") and e.pgcode == "42883":
                 # Consider adding logging here if a logger is part of BaseRepository
                 # For example: self.logger.warning(f"pg_trgm not available for '{name_query}'. Falling back to ILIKE.")
-                with self.db.get_cursor() as cur_fallback:
-                    cur_fallback.execute(
+                async with self.db.acquire() as conn_fallback:
+                    rows = await conn_fallback.fetch(
                         """
                         SELECT *, 0.0 as sim_score -- Provide a dummy sim_score for API consistency
                         FROM people
-                        WHERE name ILIKE %(name_query_like)s
+                        WHERE name ILIKE $1
                         ORDER BY length(name) ASC, name ASC -- Basic ordering for ILIKE
-                        LIMIT %(limit)s;
+                        LIMIT $2;
                         """,
-                        {
-                            "name_query_like": f"%{name_query}%",
-                            "limit": limit,
-                        },
+                        f"%{name_query}%",
+                        limit,
                     )
-                    return [dict(row) for row in cur_fallback.fetchall()]
+                    return [dict(row) for row in rows]
             else:
                 # For other unexpected database errors, re-raise to allow higher-level handling.
                 # Consider logging the error here as well.
@@ -113,7 +107,7 @@ class PeopleRepository(BaseRepository):
         # This path should ideally not be reached if exceptions are properly handled/re-raised.
         return []
 
-    def search_by_name_fuzzy_with_time_range(
+    async def search_by_name_fuzzy_with_time_range(
         self,
         name_query: str,
         start_date: str,
@@ -128,79 +122,76 @@ class PeopleRepository(BaseRepository):
         Requires the pg_trgm extension to be enabled in PostgreSQL for trigram search.
         """
         try:
-            with self.db.get_cursor() as cur:
-                cur.execute(
+            async with self.db.acquire() as conn:
+                results = await conn.fetch(
                     """
-                    SELECT *, similarity(name, %(name_query)s) as sim_score
+                    SELECT *, similarity(name::text, $1) as sim_score
                     FROM people
-                    WHERE name %% %(name_query)s
-                        AND similarity(name, %(name_query)s) >= %(threshold)s
-                        AND created_at >= %(start_date)s
-                        AND created_at <= %(end_date)s
+                    WHERE name::text % $1
+                        AND similarity(name::text, $1) >= $2
+                        AND created_at >= $3
+                        AND created_at <= $4
                     ORDER BY sim_score DESC
-                    LIMIT %(limit)s;
+                    LIMIT $5;
                     """,
-                    {
-                        "name_query": name_query,
-                        "threshold": min_similarity_threshold,
-                        "start_date": start_date,
-                        "end_date": end_date,
-                        "limit": limit,
-                    },
+                    name_query,
+                    min_similarity_threshold,
+                    start_date,
+                    end_date,
+                    limit,
                 )
-                results = [dict(row) for row in cur.fetchall()]
-                return results
+                return [dict(row) for row in results]
         except Exception as e:
             if hasattr(e, "pgcode") and e.pgcode == "42883":
-                with self.db.get_cursor() as cur_fallback:
-                    cur_fallback.execute(
+                async with self.db.acquire() as conn_fallback:
+                    rows = await conn_fallback.fetch(
                         """
                         SELECT *, 0.0 as sim_score -- Provide a dummy sim_score for API consistency
                         FROM people
-                        WHERE name ILIKE %(name_query_like)s
-                            AND created_at >= %(start_date)s
-                            AND created_at <= %(end_date)s
+                        WHERE name ILIKE $1
+                            AND created_at >= $2
+                            AND created_at <= $3
                         ORDER BY length(name) ASC, name ASC -- Basic ordering for ILIKE
-                        LIMIT %(limit)s;
+                        LIMIT $4;
                         """,
-                        {
-                            "name_query_like": f"%{name_query}%",
-                            "start_date": start_date,
-                            "end_date": end_date,
-                            "limit": limit,
-                        },
+                        f"%{name_query}%",
+                        start_date,
+                        end_date,
+                        limit,
                     )
-                    return [dict(row) for row in cur_fallback.fetchall()]
+                    return [dict(row) for row in rows]
             else:
                 raise
 
-    def search_by_name_embedding(
+    async def search_by_name_embedding(
         self, embedding: List[float], limit: int = 10
     ) -> List[Dict[str, Any]]:
         """Search by embedding similarity"""
-        with self.db.get_cursor() as cur:
-            cur.execute(
-                """
-                SET LOCAL ivfflat.probes = 10;
-                SELECT *, 1 - (embedding <=> %s) as distance
-                FROM people 
-                WHERE embedding IS NOT NULL
-                ORDER BY distance DESC
-                LIMIT %s
-            """,
-                (embedding, limit),
-            )
-            return [dict(row) for row in cur.fetchall()]
+        async with self.db.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute("SET LOCAL ivfflat.probes = 10;")
+                rows = await conn.fetch(
+                    """
+                    SELECT *, 1 - (embedding <=> $1) as distance
+                    FROM people 
+                    WHERE embedding IS NOT NULL
+                    ORDER BY distance DESC
+                    LIMIT $2
+                """,
+                    embedding,
+                    limit,
+                )
+                return [dict(row) for row in rows]
 
-    def search_by_name_fts(
+    async def search_by_name_fts(
         self, query_string: str, limit: int = 10
     ) -> List[Dict[str, Any]]:
         """Full-text search on the name column using tsvector."""
-        with self.db.get_cursor() as cur:
-            cur.execute(
+        async with self.db.acquire() as conn:
+            rows = await conn.fetch(
                 """
                 WITH search_query AS (
-                    SELECT plainto_tsquery('english', %s) AS q
+                    SELECT plainto_tsquery('english', $1) AS q
                 )
                 SELECT
                     p.*,
@@ -214,16 +205,17 @@ class PeopleRepository(BaseRepository):
                     to_tsvector('english', p.name) @@ sq.q
                 ORDER BY
                     fts_rank DESC
-                LIMIT %s;
+                LIMIT $2;
             """,
-                (query_string, limit),
+                query_string,
+                limit,
             )
-            return [dict(row) for row in cur.fetchall()]
+            return [dict(row) for row in rows]
 
-    def get_name_stats(self) -> Dict[str, Any]:
+    async def get_name_stats(self) -> Dict[str, Any]:
         """Get statistics about names in the people table."""
-        with self.db.get_cursor() as cur:
-            cur.execute(
+        async with self.db.acquire() as conn:
+            result = await conn.fetchrow(
                 """
                 SELECT
                     COUNT(DISTINCT name) AS unique_names,
@@ -231,7 +223,6 @@ class PeopleRepository(BaseRepository):
                     people;
             """
             )
-            result = cur.fetchone()
             return (
                 {
                     "unique_names": result["unique_names"],

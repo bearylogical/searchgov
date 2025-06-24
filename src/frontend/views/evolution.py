@@ -54,7 +54,7 @@ async def content():
         # --- UI Layout ---
         with ui.row().classes("items-center"):
             # Ministry Selector
-            base_ministries = (
+            base_ministries = await (
                 app_state.graph_facade.get_base_organizations()
             )
             base_ministries_selection = {
@@ -202,9 +202,9 @@ async def content():
             refs["start_button"].text = "Start"
             ui.notify("Animation reset.")
 
-        def render_org_tree(selected_date: str):
+        async def render_org_tree(selected_date: str):
             """Renders the organization tree for a specific date."""
-            res = app_state.graph_facade.get_active_descendants(
+            res = await app_state.graph_facade.get_active_descendants(
                 content_state["ministry_id"], selected_date
             )
 
@@ -261,16 +261,16 @@ async def content():
                             "grow"
                         ).style(" height: 48rem;")
 
-        def select_start_date(selected_date: str):
+        async def select_start_date(selected_date: str):
             """Handles the start date selection."""
             content_state["start_date"] = selected_date
             # When a new start date is picked, reset the animation progress
             content_state["current_date_index"] = 0
             refs["start_button"].text = "Start"
             logger.debug(f"Start date set to: {selected_date}")
-            render_org_tree(selected_date)
+            await render_org_tree(selected_date)
 
-        def fetch_timeline_dates(ministry_id: int):
+        async def fetch_timeline_dates(ministry_id: int):
             """Fetches all data needed when a new ministry is selected."""
             # If an animation was running, stop and reset everything.
             if content_state["is_running"]:
@@ -280,8 +280,10 @@ async def content():
                 f"Fetching evolution for Ministry ID: {ministry_id}"
             )
             content_state["ministry_id"] = ministry_id
-            timeline_dates = app_state.graph_facade.get_org_timeline_dates(
-                ministry_id
+            timeline_dates = (
+                await app_state.graph_facade.get_org_timeline_dates(
+                    ministry_id
+                )
             )
             # Store the timeline dates and root org in the content state
             # group the dates by year or quarter
@@ -319,8 +321,10 @@ async def content():
             # Update the content state with the new timeline dates and root org
 
             content_state["org_timeline_dates"] = timeline_dates
-            content_state["root_org"] = (
-                app_state.graph_facade.orgs_repo.find_by_org_id(ministry_id)
+            content_state[
+                "root_org"
+            ] = await app_state.graph_facade.orgs_repo.find_by_org_id(
+                ministry_id
             )
 
             # Update the date selector and reset other states

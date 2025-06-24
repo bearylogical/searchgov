@@ -1,5 +1,5 @@
 from typing import List, Dict, Union, Optional, Tuple, Any
-from src.database.postgres.connection import DatabaseConnection
+from src.database.postgres.connection import AsyncDatabaseConnection
 from src.repositories.employment import EmploymentRepository
 from src.repositories.organisations import OrganisationsRepository
 from datetime import datetime
@@ -23,7 +23,7 @@ DEFAULT_MIN_STRONG_PAIRWISE_LINKS = (
 class QueryService:
     def __init__(
         self,
-        db_connection: DatabaseConnection,
+        db_connection: AsyncDatabaseConnection,
         employment_repo: EmploymentRepository,
         org_repo: OrganisationsRepository,
     ):
@@ -32,7 +32,7 @@ class QueryService:
         self.employment_repo = employment_repo
         self.org_repo = org_repo
 
-    def _get_similar_person_names(
+    async def _get_similar_person_names(
         self,
         name_query: str,
         pg_similarity_threshold: float,
@@ -57,77 +57,57 @@ class QueryService:
         )  # Increased for better candidate pool
 
         try:
-            with self.db.get_cursor() as cur:
-                cur.execute(
+            async with self.db.acquire() as conn:
+                results = await conn.fetch(
                     """
-                    SELECT clean_name, similarity(clean_name, %s) AS sim_score
+                    SELECT clean_name, similarity(clean_name, $1) AS sim_score
                     FROM people
-                    WHERE clean_name %% %s AND similarity(clean_name, %s) >= %s
+                    WHERE clean_name % $1 AND similarity(clean_name, $1) >= $2
                     ORDER BY sim_score DESC
-                    LIMIT %s;
+                    LIMIT $3;
                     """,
-                    (
-                        name_query,
-                        name_query,
-                        name_query,
-                        pg_similarity_threshold,
-                        sql_query_limit,
-                    ),
+                    name_query,
+                    pg_similarity_threshold,
+                    sql_query_limit,
                 )
-                results = cur.fetchall()
                 if results:
-                    for row in results:
-                        pg_candidates_with_pg_score.append(
-                            (row["clean_name"], row["sim_score"])
-                        )
-                    pg_search_method_used = "PostgreSQL Trigram"
-                    self.logger.info(
-                        f"{pg_search_method_used} search for '{name_query}' found "
-                        f"{len(pg_candidates_with_pg_score)} initial candidates "
-                        f"(PG threshold >={pg_similarity_threshold}, SQL limit {sql_query_limit})."
-                    )
+                    pg_candidates_with_pg_score = [
+                        (r["clean_name"], r["sim_score"]) for r in results
+                    ]
+                    pg_search_method_used = "trigram"
                 else:
+                    # Fallback to ILIKE if trigram returns nothing
                     self.logger.info(
-                        f"No trigram matches found for '{name_query}' above threshold "
-                        f"{pg_similarity_threshold} using '%%' operator."
+                        f"No trigram results for '{name_query}'. Falling back to ILIKE."
                     )
+                    results = await conn.fetch(
+                        "SELECT clean_name FROM people WHERE clean_name ILIKE $1 LIMIT $2",
+                        f"%{name_query}%",
+                        sql_query_limit,
+                    )
+                    pg_candidates_with_pg_score = [
+                        (r["clean_name"], None) for r in results
+                    ]
+                    pg_search_method_used = "ILIKE"
         except Exception as e:
             if hasattr(e, "pgcode") and e.pgcode == "42883":
                 self.logger.warning(
                     f"Trigram functions failed for '{name_query}'. Falling back to ILIKE. Error: {e}"
                 )
                 try:
-                    with self.db.get_cursor() as cur_fallback:
-                        cur_fallback.execute(
-                            """
-                            SELECT clean_name
-                            FROM people
-                            WHERE clean_name ILIKE %s
-                            ORDER BY length(clean_name) ASC, clean_name ASC
-                            LIMIT %s;
-                            """,
-                            (f"%{name_query}%", sql_query_limit),
+                    async with self.db.acquire() as conn:
+                        results = await conn.fetch(
+                            "SELECT clean_name FROM people WHERE clean_name ILIKE $1 LIMIT $2",
+                            f"%{name_query}%",
+                            sql_query_limit,
                         )
-                        results_fallback = cur_fallback.fetchall()
-                        if results_fallback:
-                            for row_fallback in results_fallback:
-                                pg_candidates_with_pg_score.append(
-                                    (row_fallback["clean_name"], None)
-                                )
-                            pg_search_method_used = (
-                                "PostgreSQL ILIKE (fallback)"
-                            )
-                            self.logger.info(
-                                f"{pg_search_method_used} search for '{name_query}' found "
-                                f"{len(results_fallback)} initial candidates (SQL limit {sql_query_limit})."
-                            )
-                        else:
-                            self.logger.warning(
-                                f"Fallback ILIKE search for '{name_query}' found no results."
-                            )
+                        pg_candidates_with_pg_score = [
+                            (r["clean_name"], None) for r in results
+                        ]
+                        pg_search_method_used = "ILIKE"
                 except Exception as e_fallback:
                     self.logger.error(
-                        f"Error during fallback ILIKE search for '{name_query}': {e_fallback}"
+                        f"Fallback ILIKE search failed for '{name_query}': {e_fallback}"
                     )
                     return []
             else:
@@ -300,7 +280,7 @@ class QueryService:
                 deduplicated_list.append(d_item)
         return deduplicated_list
 
-    def find_colleagues_at_date(
+    async def find_colleagues_at_date(
         self,
         person_name: str,
         target_date: Optional[str] = None,
@@ -323,7 +303,7 @@ class QueryService:
                 if enable_pairwise_deep_check is not None
                 else True
             )
-            similar_names = self._get_similar_person_names(
+            similar_names = await self._get_similar_person_names(
                 name_query=person_name,
                 pg_similarity_threshold=min_similarity_threshold,
                 fw_primary_similarity_threshold=fw_primary_similarity_threshold,
@@ -333,10 +313,6 @@ class QueryService:
                 min_strong_pairwise_links=min_links_for_pairwise_check,
             )
             if not similar_names:
-                self.logger.info(
-                    f"No suitable fuzzy matches for '{person_name}' for find_colleagues_at_date. "
-                    "Returning empty list."
-                )
                 return []
             names_to_query = similar_names
             self.logger.info(
@@ -349,18 +325,24 @@ class QueryService:
 
         all_colleagues: List[Dict] = []
         try:
-            with self.db.get_cursor() as cur:
-                for name_to_use in names_to_query:
-                    cur.execute(
-                        "SELECT * FROM find_colleagues_at_date(%s, %s)",
-                        (name_to_use, target_date),
-                    )
-                    results = [dict(row) for row in cur.fetchall()]
-                    all_colleagues.extend(results)
-                    if results:
-                        self.logger.debug(
-                            f"Found {len(results)} colleagues for '{name_to_use}' at {target_date}."
-                        )
+            async with self.db.acquire() as conn:
+                # Using ANY($1) to pass a list of names
+                results = await conn.fetch(
+                    """
+                    SELECT DISTINCT p2.name as colleague_name, o.name as org_name, e2.rank as colleague_rank
+                    FROM employment e1
+                    JOIN people p1 ON e1.person_id = p1.id
+                    JOIN employment e2 ON e1.org_id = e2.org_id AND e1.id != e2.id
+                    JOIN people p2 ON e2.person_id = p2.id
+                    JOIN organizations o ON e1.org_id = o.id
+                    WHERE p1.name = ANY($1)
+                    AND $2::date BETWEEN e1.start_date AND e1.end_date
+                    AND $2::date BETWEEN e2.start_date AND e2.end_date;
+                    """,
+                    names_to_query,
+                    target_date,
+                )
+                all_colleagues = [dict(row) for row in results]
         except Exception as e:
             self.logger.error(
                 f"Error finding colleagues for names derived from '{person_name}': {e}"
@@ -369,7 +351,7 @@ class QueryService:
 
         return self._deduplicate_list_of_dicts(all_colleagues)
 
-    def find_all_colleagues(
+    async def find_all_colleagues(
         self,
         person_name: str,
         is_fuzzy: bool = False,
@@ -379,14 +361,10 @@ class QueryService:
         """Find all colleagues, optionally using fuzzy search for multiple similar names."""
         names_to_query: List[str] = [person_name]
         if is_fuzzy:
-            similar_names = self._get_similar_person_names(
+            similar_names = await self._get_similar_person_names(
                 person_name, min_similarity_threshold, max_similar_names
             )
             if not similar_names:
-                self.logger.info(
-                    f"No suitable fuzzy matches for '{person_name}' for find_all_colleagues. "
-                    "Returning empty list."
-                )
                 return []
             names_to_query = similar_names
             self.logger.info(
@@ -396,19 +374,20 @@ class QueryService:
 
         all_colleagues: List[Dict] = []
         try:
-            with self.db.get_cursor() as cur:
-                for name_to_use in names_to_query:
-                    cur.execute(
-                        "SELECT * FROM find_all_colleagues(%s)",
-                        (name_to_use,),
-                    )
-                    results = [dict(row) for row in cur.fetchall()]
-                    all_colleagues.extend(results)
-                    if results:
-                        self.logger.debug(
-                            f"Found {len(results)} total colleagues for '{name_to_use}'."
-                        )
-
+            async with self.db.acquire() as conn:
+                results = await conn.fetch(
+                    """
+                    SELECT DISTINCT p2.name as colleague_name, o.name as org_name, e2.rank as colleague_rank
+                    FROM employment e1
+                    JOIN people p1 ON e1.person_id = p1.id
+                    JOIN employment e2 ON e1.org_id = e2.org_id AND e1.id != e2.id
+                    JOIN people p2 ON e2.person_id = p2.id
+                    JOIN organizations o ON e1.org_id = o.id
+                    WHERE p1.name = ANY($1);
+                    """,
+                    names_to_query,
+                )
+                all_colleagues = [dict(row) for row in results]
         except Exception as e:
             self.logger.error(
                 f"Error finding all colleagues for names derived from '{person_name}': {e}"
@@ -417,7 +396,7 @@ class QueryService:
 
         return self._deduplicate_list_of_dicts(all_colleagues)
 
-    def get_career_progression_by_name(
+    async def get_career_progression_by_name(
         self,
         person_name: str,
         is_fuzzy: bool = False,
@@ -441,7 +420,7 @@ class QueryService:
                 if enable_pairwise_deep_check is not None
                 else True
             )
-            similar_names = self._get_similar_person_names(
+            similar_names = await self._get_similar_person_names(
                 name_query=person_name,
                 pg_similarity_threshold=min_similarity_threshold,
                 fw_primary_similarity_threshold=fw_primary_similarity_threshold,
@@ -451,10 +430,6 @@ class QueryService:
                 min_strong_pairwise_links=min_links_for_pairwise_check,
             )
             if not similar_names:
-                self.logger.info(
-                    f"No suitable fuzzy matches for '{person_name}' for get_career_progression. "
-                    "Returning empty list."
-                )
                 return []
             names_to_query = similar_names
             self.logger.info(
@@ -464,52 +439,44 @@ class QueryService:
 
         all_progressions: List[Dict] = []
         try:
-            with self.db.get_cursor() as cur:
-                for name_to_use in names_to_query:
-                    cur.execute(
-                        """
-                        SELECT
-                            p.name as person_actual_name,
-                            p.id as person_id,
-                            o.name as entity_name,
-                            o.department as department_name,
-                            o.id as org_id,
-                            po.name as parent_organization_name,
-                            o.metadata as entity_metadata,
-                            e.rank,
-                            e.start_date,
-                            e.end_date,
-                            e.tenure_days,
-                            ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY e.start_date) as sequence_number
-                        FROM employment e
-                        JOIN people p ON e.person_id = p.id
-                        JOIN organizations o ON e.org_id = o.id
-                        LEFT JOIN organizations po ON o.parent_org_id = po.id 
-                        WHERE p.name = %s
-                        ORDER BY p.id, e.start_date
-                        """,
-                        (name_to_use,),
-                    )
-                    results = [dict(row) for row in cur.fetchall()]
-
-                    all_progressions.extend(results)
-                    if results:
-                        self.logger.debug(
-                            f"Found {len(results)} career progression entries for '{name_to_use}'."
-                        )
-                if all_progressions and get_parent_orgs:
-                    for progression in all_progressions:
-                        progression["linked_org"] = (
-                            self.org_repo.get_all_ancestors(
-                                progression["org_id"],
-                            )
-                        )
-                        # progression["linked_parent_orgs"] =
+            async with self.db.acquire() as conn:
+                results = await conn.fetch(
+                    """
+                    SELECT
+                        p.name as person_name,
+                        p.id as person_id,
+                        e.rank,
+                        o.name as entity_name,
+                        o.id as org_id,
+                        e.start_date,
+                        e.end_date
+                    FROM employment e
+                    JOIN people p ON e.person_id = p.id
+                    JOIN organizations o ON e.org_id = o.id
+                    WHERE p.name = ANY($1)
+                    ORDER BY e.start_date;
+                    """,
+                    names_to_query,
+                )
+                all_progressions = [dict(row) for row in results]
         except Exception as e:
             self.logger.error(
                 f"Error getting career progression for names derived from '{person_name}': {e}"
             )
             return []
+
+        if all_progressions and get_parent_orgs:
+            for profile in all_progressions:
+                try:
+                    profile[
+                        "linked_organizations"
+                    ] = await self.org_repo.get_all_ancestors(
+                        profile["org_id"]
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Error getting linked organizations for profile {profile['id']}: {e}"
+                    )
 
         if cluster_by_rank_and_entity:
             self.logger.info(
@@ -563,7 +530,7 @@ class QueryService:
                         ).days
         return deduplicated_profiles
 
-    def get_career_progression_by_person_id(
+    async def get_career_progression_by_person_id(
         self,
         person_id: int,
         get_parent_orgs: bool = True,
@@ -571,120 +538,55 @@ class QueryService:
         """Get career progression by person ID."""
         all_progressions: List[Dict] = []
         try:
-            with self.db.get_cursor() as cur:
-                cur.execute(
+            async with self.db.acquire() as conn:
+                results = await conn.fetch(
                     """
                     SELECT
-                        p.name as person_actual_name,
+                        p.name as person_name,
                         p.id as person_id,
-                        o.name as entity_name,
-                        o.department as department_name,
-                        o.id as org_id,
-                        po.name as parent_organization_name,
-                        o.metadata as entity_metadata,
                         e.rank,
+                        o.name as entity_name,
+                        o.id as org_id,
                         e.start_date,
-                        e.end_date,
-                        e.tenure_days,
-                        ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY e.start_date) as sequence_number
+                        e.end_date
                     FROM employment e
                     JOIN people p ON e.person_id = p.id
                     JOIN organizations o ON e.org_id = o.id
-                    LEFT JOIN organizations po ON o.parent_org_id = po.id 
-                    WHERE p.id = %s
-                    ORDER BY p.id, e.start_date
+                    WHERE p.id = $1
+                    ORDER BY e.start_date;
                     """,
-                    (person_id,),
+                    person_id,
                 )
-                results = [dict(row) for row in cur.fetchall()]
-                all_progressions.extend(results)
-                if results and get_parent_orgs:
-                    for progression in all_progressions:
-                        progression["linked_org"] = (
-                            self.org_repo.get_all_ancestors(
-                                progression["org_id"],
-                            )
-                        )
+                all_progressions = [dict(row) for row in results]
         except Exception as e:
             self.logger.error(
                 f"Error getting career progression for person ID {person_id}: {e}"
             )
             return []
 
+        if all_progressions and get_parent_orgs:
+            for profile in all_progressions:
+                try:
+                    profile[
+                        "linked_organizations"
+                    ] = await self.org_repo.get_all_ancestors(
+                        profile["org_id"]
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Error getting linked organizations for profile {profile['id']}: {e}"
+                    )
+
         return self._deduplicate_list_of_dicts(all_progressions)
 
-    def get_network_snapshot(self, target_date: str) -> List[Dict]:
+    async def get_network_snapshot(self, target_date: str) -> List[Dict]:
         """
         Gets the network state at a specific date, including the unique IDs
         for people and organizations.
         """
         try:
-            with self.db.get_cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT
-                        p.id as person_id,      -- Added this line
-                        p.name as person_name,
-                        o.id as org_id,        -- Added this line
-                        o.name as org_name,
-                        e.rank,
-                        e.start_date,
-                        e.end_date,
-                        p.tel,
-                        p.email
-                    FROM employment e
-                    JOIN people p ON e.person_id = p.id
-                    JOIN organizations o ON e.org_id = o.id
-                    WHERE %(target_date)s BETWEEN e.start_date AND e.end_date
-                    ORDER BY o.name, p.name;
-                """,
-                    {"target_date": target_date},
-                )
-                return [dict(row) for row in cur.fetchall()]
-        except Exception as e:
-            self.logger.error(f"Error getting network snapshot: {e}")
-            return []
-
-    def find_people_by_temporal_overlap(
-        self,
-        person_id: int,
-        name_filter: Optional[str] = None,
-        limit: int = 50,
-    ) -> List[Dict[str, Any]]:
-        """
-        Finds people connected to a given person via overlapping employment.
-        """
-        self.logger.info(
-            f"Finding temporal connections for person_id: {person_id}"
-        )
-        return self.employment_repo.find_people_with_overlapping_employment(
-            person_id, name_filter, limit
-        )
-
-    def find_employment_by_person_id(
-        self,
-        person_id: int,
-        limit: int = 50,
-        get_recent_employment: bool = False,
-    ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-        """
-        Finds employment connected to a given person ID.
-        """
-        res = self.employment_repo.find_by_person_id(person_id, limit)
-        if get_recent_employment and res:
-            # Sort by start_date descending to get the most recent employment first
-            res.sort(key=lambda x: x["start_date"], reverse=True)[0]
-        return res
-
-    def get_all_employment_data(self) -> List[Dict]:
-        """
-        Gets the entire network history, including unique IDs for people
-        and organizations, across all time.
-        """
-        self.logger.info("Fetching all historical employment data.")
-        try:
-            with self.db.get_cursor() as cur:
-                cur.execute(
+            async with self.db.acquire() as conn:
+                results = await conn.fetch(
                     """
                     SELECT
                         p.id as person_id,
@@ -697,10 +599,70 @@ class QueryService:
                     FROM employment e
                     JOIN people p ON e.person_id = p.id
                     JOIN organizations o ON e.org_id = o.id
-                    ORDER BY o.name, p.name;
-                """
+                    WHERE $1::date BETWEEN e.start_date AND e.end_date;
+                    """,
+                    target_date,
                 )
-                return [dict(row) for row in cur.fetchall()]
+                return [dict(row) for row in results]
+        except Exception as e:
+            self.logger.error(f"Error getting network snapshot: {e}")
+            return []
+
+    async def find_people_by_temporal_overlap(
+        self,
+        person_id: int,
+        name_filter: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Finds people connected to a given person via overlapping employment.
+        """
+        self.logger.info(
+            f"Finding temporal connections for person_id: {person_id}"
+        )
+        return await self.employment_repo.find_people_with_overlapping_employment(
+            person_id, name_filter, limit
+        )
+
+    async def find_employment_by_person_id(
+        self,
+        person_id: int,
+        limit: int = 50,
+        get_recent_employment: bool = False,
+    ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Finds employment connected to a given person ID.
+        """
+        res = await self.employment_repo.find_by_person_id(person_id, limit)
+        if get_recent_employment and res:
+            # Sort by start_date descending to get the most recent employment first
+            res.sort(key=lambda x: x["start_date"], reverse=True)[0]
+        return res
+
+    async def get_all_employment_data(self) -> List[Dict]:
+        """
+        Gets the entire network history, including unique IDs for people
+        and organizations, across all time.
+        """
+        self.logger.info("Fetching all historical employment data.")
+        try:
+            async with self.db.acquire() as conn:
+                results = await conn.fetch(
+                    """
+                    SELECT
+                        p.id as person_id,
+                        p.name as person_name,
+                        o.id as org_id,
+                        o.name as org_name,
+                        e.rank,
+                        e.start_date,
+                        e.end_date
+                    FROM employment e
+                    JOIN people p ON e.person_id = p.id
+                    JOIN organizations o ON e.org_id = o.id;
+                    """
+                )
+                return [dict(row) for row in results]
         except Exception as e:
             self.logger.error(f"Error getting all employment data: {e}")
             return []

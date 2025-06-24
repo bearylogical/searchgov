@@ -32,6 +32,7 @@ dependencies = [
     "python-lsp-ruff>=2.2.2,<3",
     "supabase>=2.13.0",
     "pydantic>=1.10.22",
+    "asyncpg>=0.30.0",
 ]
 
 [dependency-groups]

@@ -11,7 +11,7 @@ class OrganisationService:
         self.orgs_repo = orgs_repo
         self.logger = logging.getLogger(__name__)
 
-    def preseed_organizations(
+    async def preseed_organizations(
         self, org_hierarchy_data: List[Dict[str, Any]]
     ) -> Dict[str, int]:
         """
@@ -33,7 +33,7 @@ class OrganisationService:
         failed_count = 0
 
         try:
-            with self.orgs_repo.db.transaction():
+            async with self.orgs_repo.db.transaction():
                 for org_to_seed in sorted_org_data:
                     current_org_name = org_to_seed.get("org")
                     current_org_url = org_to_seed.get("url")
@@ -51,7 +51,7 @@ class OrganisationService:
                     # --- LOGIC TO RESTORE UPDATE COUNT ---
                     # 1. Check if the org already exists in the DB from a previous run.
                     # We must do this before the create call.
-                    existing_org = self.orgs_repo.find_by_url(
+                    existing_org = await self.orgs_repo.find_by_url(
                         current_org_url
                     )
                     is_update = existing_org is not None
@@ -66,8 +66,10 @@ class OrganisationService:
                                 parent_org_url_from_seed
                             ]
                         else:
-                            parent_org_obj = self.orgs_repo.find_by_url(
-                                parent_org_url_from_seed
+                            parent_org_obj = (
+                                await self.orgs_repo.find_by_url(
+                                    parent_org_url_from_seed
+                                )
                             )
 
                         if parent_org_obj:
@@ -103,7 +105,7 @@ class OrganisationService:
                         "metadata": cleaned_org_metadata,
                     }
 
-                    created_or_updated_id = self.orgs_repo.create(
+                    created_or_updated_id = await self.orgs_repo.create(
                         org_creation_data
                     )
 
@@ -159,7 +161,7 @@ class OrganisationService:
         department_name = " : ".join(parts[:-1]) if len(parts) > 1 else None
         return {"name": specific_name, "department": department_name}
 
-    def _get_parent_org_id(
+    async def _get_parent_org_id(
         self, parent_name: Optional[str], parent_url: Optional[str]
     ) -> Optional[int]:
         """Helper to find or create a parent organization."""
@@ -167,7 +169,7 @@ class OrganisationService:
             return None
 
         parent_org_id = None
-        parent_org_obj = self.orgs_repo.find_by_url(parent_url)
+        parent_org_obj = await self.orgs_repo.find_by_url(parent_url)
 
         if parent_org_obj:
             parent_org_id = parent_org_obj["id"]
@@ -182,7 +184,7 @@ class OrganisationService:
             parsed_parent = self._parse_org_details(parent_name)
             # For a parent org created this way, its own parent_org_id is None.
             # Department for such parent orgs might be None or same as name.
-            created_id = self.orgs_repo.create(
+            created_id = await self.orgs_repo.create(
                 {
                     "name": parsed_parent.get("name"),
                     "department": parsed_parent.get(
@@ -211,7 +213,7 @@ class OrganisationService:
             )
         return parent_org_id
 
-    def _get_org_id(
+    async def _get_org_id(
         self,
         org_full_name: str,
         org_url: Optional[str] = None,
@@ -219,11 +221,11 @@ class OrganisationService:
         parent_org_url: Optional[str] = None,
     ) -> Optional[int]:
         """Helper to find or create an organization by its full name and URL."""
-        org = self.orgs_repo.find_by_url(org_url)
+        org = await self.orgs_repo.find_by_url(org_url)
         if org:
             return org["id"]
         # parent org
-        parent_org_id = self._get_parent_org_id(
+        parent_org_id = await self._get_parent_org_id(
             parent_org_name, parent_org_url
         )
 
@@ -242,9 +244,9 @@ class OrganisationService:
                 "source_full_name": org_full_name,
             },
         }
-        return self.orgs_repo.create(org_data)
+        return await self.orgs_repo.create(org_data)
 
-    def get_organization_subtree(
+    async def get_organization_subtree(
         self, parent_org_id: int
     ) -> List[Dict[str, Any]]:
         """
@@ -262,7 +264,7 @@ class OrganisationService:
         )
         try:
             # Call the new repository method
-            return self.orgs_repo.get_all_descendants(parent_org_id)
+            return await self.orgs_repo.get_all_descendants(parent_org_id)
         except Exception as e:
             self.logger.error(
                 f"Failed to retrieve organization subtree for ID {parent_org_id}: {e}",
@@ -270,7 +272,7 @@ class OrganisationService:
             )
             return []  # Return an empty list on error
 
-    def get_organization_subtree_at_date(
+    async def get_organization_subtree_at_date(
         self, parent_org_id: int, target_date: str
     ) -> List[Dict[str, Any]]:
         """
@@ -289,7 +291,7 @@ class OrganisationService:
             f"Fetching descendants for org ID {parent_org_id} active on {target_date}"
         )
         try:
-            return self.orgs_repo.get_all_descendants_at_date(
+            return await self.orgs_repo.get_all_descendants_at_date(
                 parent_org_id, target_date
             )
         except Exception as e:
@@ -299,7 +301,9 @@ class OrganisationService:
             )
             return []
 
-    def get_organization_timeline(self, parent_org_id: int) -> List[str]:
+    async def get_organization_timeline(
+        self, parent_org_id: int
+    ) -> List[str]:
         """
         Generates a timeline of significant dates for an organization and
         its entire subtree. These dates correspond to when any sub-org was
@@ -315,7 +319,7 @@ class OrganisationService:
             f"Generating timeline for organization subtree of ID {parent_org_id}"
         )
         try:
-            return self.orgs_repo.get_timeline_dates_for_subtree(
+            return await self.orgs_repo.get_timeline_dates_for_subtree(
                 parent_org_id
             )
         except Exception as e:
@@ -325,7 +329,7 @@ class OrganisationService:
             )
             return []
 
-    def get_org_descendants_diff_between_dates(
+    async def get_org_descendants_diff_between_dates(
         self,
         parent_org_id: int,
         start_date: str,
@@ -348,11 +352,11 @@ class OrganisationService:
         self.logger.info(
             f"Fetching descendants diff for org ID {parent_org_id} between {start_date} and {end_date}"
         )
-        return self.orgs_repo.get_org_descendants_diff_between_dates(
+        return await self.orgs_repo.get_org_descendants_diff_between_dates(
             parent_org_id, start_date, end_date
         )
 
-    def get_organizations_by_depth(
+    async def get_organizations_by_depth(
         self, depth: int
     ) -> List[Dict[str, Any]]:
         """
@@ -372,7 +376,7 @@ class OrganisationService:
 
         self.logger.info(f"Fetching all organizations at depth {depth}")
         try:
-            return self.orgs_repo.find_by_depth(depth)
+            return await self.orgs_repo.find_by_depth(depth)
         except Exception as e:
             self.logger.error(
                 f"Failed to retrieve organizations at depth {depth}: {e}",
@@ -380,13 +384,13 @@ class OrganisationService:
             )
             return []
 
-    def get_organization_hierarchy(self) -> List[Dict[str, Any]]:
+    async def get_organization_hierarchy(self) -> List[Dict[str, Any]]:
         """
         Fetches the entire organization hierarchy needed for graph building.
         Selects only the columns required for building the graph structure.
         """
-        with self.orgs_repo.db.get_cursor() as cur:
-            cur.execute(
+        async with self.orgs_repo.db.acquire() as conn:
+            rows = await conn.fetch(
                 """
                 SELECT id, name, parent_org_id
                 FROM organizations
@@ -394,4 +398,4 @@ class OrganisationService:
                 """
             )
             # No need for _row_to_dict as we are not fetching metadata
-            return [dict(row) for row in cur.fetchall()]
+            return [dict(row) for row in rows]

@@ -32,7 +32,7 @@ class EmploymentService:
             orgs_repo=self.org_service.orgs_repo
         )
 
-    def bulk_insert_records(
+    async def bulk_insert_records(
         self, records: List[Dict[str, Any]], batch_size: int = 1000
     ) -> Dict[str, int]:
         """
@@ -68,7 +68,7 @@ class EmploymentService:
                 for i, cluster in enumerate(person_clusters):
                     # MODIFIED: We no longer create a disambiguated name string.
                     # We will pass the original name and a key instead.
-                    self._process_person_cluster(
+                    await self._process_person_cluster(
                         cluster=cluster,
                         person_name=name,  # Pass the original, clean name
                         disambiguation_key=i + 1,  # Key is 1, 2, 3...
@@ -86,7 +86,7 @@ class EmploymentService:
             "Bulk insert process finished. Refreshing materialized views..."
         )
         try:
-            self.schema_manager.refresh_materialized_views()
+            await self.schema_manager.refresh_materialized_views()
             self.logger.info("Materialized views refreshed successfully.")
         except Exception as e:
             self.logger.error(
@@ -99,7 +99,7 @@ class EmploymentService:
             "failed": stats["failed"],
         }
 
-    def _process_person_cluster(
+    async def _process_person_cluster(
         self,
         cluster: List[Dict[str, Any]],
         person_name: str,
@@ -114,11 +114,11 @@ class EmploymentService:
             return
 
         try:
-            with self.people_repo.db.transaction():
+            async with self.people_repo.db.transaction():
                 # 1. Create ONE person record for this entire cluster.
                 # We use the first record in the cluster for metadata.
                 first_record = cluster[0]
-                person_id = self.people_repo.create(
+                person_id = await self.people_repo.create(
                     {
                         "name": person_name,  # Use the unique, disambiguated name
                         "clean_name": first_record["clean_name"],
@@ -142,7 +142,7 @@ class EmploymentService:
                 # 2. Loop through all employment records in the cluster
                 for record in cluster:
                     # 3. Resolve or Create current organization
-                    org_id = self.org_service._get_org_id(
+                    org_id = await self.org_service._get_org_id(
                         record["org"],
                         record.get("url"),
                         record.get("parent_org_name"),
@@ -171,7 +171,7 @@ class EmploymentService:
                             ),
                         },
                     }
-                    employment_id = self.employment_repo.create(
+                    employment_id = await self.employment_repo.create(
                         employment_data
                     )
                     if employment_id:
@@ -186,12 +186,12 @@ class EmploymentService:
             )
             stats["failed"] += len(cluster)
 
-    def add_employment_record(self, record: Dict[str, Any]) -> bool:
+    async def add_employment_record(self, record: Dict[str, Any]) -> bool:
         """Add a complete employment record, handling organizational hierarchy."""
         try:
-            with self.people_repo.db.transaction():
+            async with self.people_repo.db.transaction():
                 # 1. Create or get person
-                person_id = self.people_repo.create(
+                person_id = await self.people_repo.create(
                     {
                         "name": record["clean_name"],
                         "clean_name": record["clean_name"],
@@ -216,7 +216,7 @@ class EmploymentService:
                 # )
 
                 # 3. Resolve or Create current organization
-                org_id = self.org_service._get_org_id(
+                org_id = await self.org_service._get_org_id(
                     record["org"],
                     record.get("url"),
                     record.get("parent_org_name"),
@@ -246,7 +246,9 @@ class EmploymentService:
                         ),  # Clarify if this is employment specific
                     },
                 }
-                employment_id = self.employment_repo.create(employment_data)
+                employment_id = await self.employment_repo.create(
+                    employment_data
+                )
 
                 return employment_id is not None
 

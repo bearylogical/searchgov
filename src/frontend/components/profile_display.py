@@ -19,19 +19,21 @@ class Profile:
     end_date: Optional[str]  # Can be 'N/A'
 
 
-def get_parent_entity(linked_orgs: List[Dict[str, Any]]) -> Dict[str, str]:
+def get_parent_entity(
+    linked_organizations: List[Dict[str, Any]],
+) -> Dict[str, str]:
     """Get the parent organization from a list of linked organizations."""
-    if not linked_orgs:
+    if not linked_organizations:
         return {"name": "Unknown", "acronym": "UNK", "type": "unknown"}
     try:
         parent_ministry = [
             e
-            for e in linked_orgs
+            for e in linked_organizations
             if "ministry" in e["metadata"].get("sgdi_entity_type", "")
         ]
         parent_stat_board = [
             e
-            for e in linked_orgs
+            for e in linked_organizations
             if "statutory" in e["metadata"].get("sgdi_entity_type", "")
         ]
     except KeyError as e:
@@ -40,7 +42,7 @@ def get_parent_entity(linked_orgs: List[Dict[str, Any]]) -> Dict[str, str]:
     else:
         if parent_ministry and parent_stat_board:
             return {
-                "name": parent_stat_board[0]["name"],
+                "name": parent_stat_board[0]["name"].split(":")[-1],
                 "acronym": parent_stat_board[0]["metadata"]["parts"][
                     -1
                 ].upper(),
@@ -56,9 +58,13 @@ def get_parent_entity(linked_orgs: List[Dict[str, Any]]) -> Dict[str, str]:
             }
         else:
             return {
-                "name": linked_orgs[0]["name"],
-                "acronym": linked_orgs[0]["metadata"]["parts"][0].upper(),
-                "type": linked_orgs[0].get("sgdi_entity_type", "unknown"),
+                "name": linked_organizations[0]["name"],
+                "acronym": linked_organizations[0]["metadata"]["parts"][
+                    0
+                ].upper(),
+                "type": linked_organizations[0].get(
+                    "sgdi_entity_type", "unknown"
+                ),
             }
 
 
@@ -85,7 +91,7 @@ def build_timeline(
         with ui.timeline(side="right"):
             for employment in employment_list:
                 entry_container = ui.timeline_entry(
-                    f'Identified Name : {employment["person_actual_name"]}',
+                    f'Identified Name : {employment["person_name"]}',
                     icon="work",
                     title=f'{employment["rank"]}, {employment["entity_name"].title()}',
                     subtitle=f"{employment['start_date']} till {employment['end_date']}",
@@ -123,11 +129,10 @@ def build_profile_card(
         end_dates = [
             e["end_date"] for e in employment_list if e.get("end_date")
         ]
+        logger.debug(person_details)
         profile = Profile(
             anchor_name=person_details["name"],
-            aliases=list(
-                set(e["person_actual_name"] for e in employment_list)
-            ),
+            aliases=list(set(e["person_name"] for e in employment_list)),
             ids=list(set(e["person_id"] for e in employment_list)),
             org_ids=list(set(e["org_id"] for e in employment_list)),
             start_date=min(start_dates) if start_dates else "N/A",
@@ -144,7 +149,7 @@ def build_profile_card(
                 f"Employment Period: {profile.start_date} to {profile.end_date}"
             ).classes("text-sm text-gray-500")
             agencies = {
-                get_parent_entity(e.get("linked_org", []))["name"]
+                get_parent_entity(e.get("linked_organizations", []))["name"]
                 for e in employment_list
                 if e.get("entity_name")
             }
@@ -159,9 +164,14 @@ def build_profile_card(
                         f'{employment["rank"]}, {employment["entity_name"].title()}'
                     ).classes("font-semibold")
                     parent_entity = get_parent_entity(
-                        employment.get("linked_org", [])
+                        employment.get("linked_organizations", [])
                     )
-                    ui.label(f'Parent Ministry : {parent_entity["name"]}')
+                    logger.debug(
+                        f"Parent entity for {employment['person_name']}: {employment}"
+                    )
+                    ui.label(
+                        f'Parent Ministry/Stat Board: {parent_entity["name"]}'
+                    )
                     ui.item_label(
                         f"{employment['start_date']} - {employment['end_date']}"
                     ).props("caption")

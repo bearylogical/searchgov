@@ -5,6 +5,6 @@ from src.frontend.utils.views import exclude_from_scan
 
 
 @exclude_from_scan
-def content():
+async def content():
     with theme.frame("Connectivity Graph"):
         pass
