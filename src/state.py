@@ -20,7 +20,7 @@ POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
 
 
-def initialize_app_state():
+async def initialize_app_state():
     """
     Creates the single instance of our TemporalGraph facade.
     This should be called once when the application starts.
@@ -31,6 +31,7 @@ def initialize_app_state():
         # You can pull DB credentials from environment variables or a config
         # file here for better security and flexibility.
         try:
+            # Assuming TemporalGraph now uses AsyncDatabaseConnection internally
             graph_facade = TemporalGraph(
                 host=POSTGRES_HOST,
                 database=POSTGRES_DB,
@@ -38,14 +39,18 @@ def initialize_app_state():
                 password=POSTGRES_PASSWORD,
                 port=POSTGRES_PORT,
             )
+            # The connection is now managed by the facade, which should connect its pool.
+            await graph_facade.db_connection.connect()
             logger.info("✅ TemporalGraph facade initialized.")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize TemporalGraph facade: {e}")
+            logger.error(
+                f"❌ Failed to initialize TemporalGraph facade: {e}"
+            )
     else:
         logger.warning("⚠️ TemporalGraph facade already initialized.")
 
 
-def shutdown_app_state():
+async def shutdown_app_state():
     """
     Gracefully shuts down the facade, closing database connections.
     This should be called once when the application stops.
@@ -53,6 +58,6 @@ def shutdown_app_state():
     global graph_facade
     if graph_facade:
         logger.info("🔌 Shutting down TemporalGraph facade...")
-        graph_facade.close()
+        await graph_facade.close()
         graph_facade = None
         logger.info("✅ TemporalGraph facade shut down.")
