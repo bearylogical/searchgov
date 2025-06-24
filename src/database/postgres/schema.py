@@ -59,7 +59,7 @@ class SchemaManager:
             extensions = [
                 "CREATE EXTENSION IF NOT EXISTS btree_gist;",
                 "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
-                # "CREATE EXTENSION IF NOT EXISTS vector;",
+                "CREATE EXTENSION IF NOT EXISTS vector;",
             ]
 
             for ext in extensions:
@@ -70,7 +70,8 @@ class SchemaManager:
         self.register_pgvector()
 
     def register_pgvector(self):
-        register_vector(self.db.conn)
+        with self.db.get_cursor() as cur:
+            register_vector(cur.connection)
 
     def _create_tables(self):
         """Create all tables"""
