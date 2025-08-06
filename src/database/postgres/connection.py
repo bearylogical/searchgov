@@ -54,11 +54,56 @@ class AsyncDatabaseConnection:
         async with self.pool.acquire() as connection:
             return await connection.execute(query, *args)
 
+    class _TransactionContext:
+        """Context manager for database transactions."""
+
+        def __init__(self, pool):
+            self.pool = pool
+            self.connection = None
+            self.transaction = None
+            self.committed = False
+            self.rolled_back = False
+
+        async def __aenter__(self):
+            self.connection = await self.pool.acquire()
+            self.transaction = self.connection.transaction()
+            await self.transaction.start()
+            return self.connection
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            try:
+                if (
+                    self.transaction
+                    and not self.committed
+                    and not self.rolled_back
+                ):
+                    if exc_type is None:
+                        await self.transaction.commit()
+                        self.committed = True
+                    else:
+                        await self.transaction.rollback()
+                        self.rolled_back = True
+            except Exception as e:
+                print(f"Error during transaction cleanup: {e}")
+                # Try to rollback if we haven't done anything yet
+                if not self.committed and not self.rolled_back:
+                    try:
+                        await self.transaction.rollback()
+                        self.rolled_back = True
+                    except Exception:
+                        pass
+            finally:
+                if self.connection:
+                    try:
+                        await self.pool.release(self.connection)
+                    except Exception as e:
+                        print(f"Error releasing connection: {e}")
+
     def transaction(self):
         """Provides a context manager for a transaction."""
         if not self.pool:
             raise ConnectionError("Connection pool is not initialized.")
-        return self.pool.transaction()
+        return self._TransactionContext(self.pool)
 
     def acquire(self):
         """Provides a context manager to acquire a connection from the pool."""

@@ -12,21 +12,60 @@ class OrganisationService:
         self.logger = logging.getLogger(__name__)
 
     async def preseed_organizations(
-        self, org_hierarchy_data: List[Dict[str, Any]]
+        self,
+        org_hierarchy_data: List[Dict[str, Any]],
+        batch_size: int = 100,
     ) -> Dict[str, int]:
         """
-        Pre-seeds organizations based on a list of hierarchy data using a
-        single transaction and an in-memory map for high performance.
-        Correctly tracks created vs. updated records.
+        Pre-seeds organizations based on a list of hierarchy data using
+        batched transactions for better performance and reliability.
         """
         self.logger.info(
-            f"Starting pre-seeding of {len(org_hierarchy_data)} organizations."
+            f"Starting pre-seeding of {len(org_hierarchy_data)} organizations in batches of {batch_size}."
         )
 
         sorted_org_data = sorted(
             org_hierarchy_data, key=lambda x: len(x.get("parts", []))
         )
 
+        total_created = 0
+        total_updated = 0
+        total_failed = 0
+
+        # Process organizations in batches
+        for i in range(0, len(sorted_org_data), batch_size):
+            batch = sorted_org_data[i : i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (
+                len(sorted_org_data) + batch_size - 1
+            ) // batch_size
+
+            self.logger.info(
+                f"Processing batch {batch_num}/{total_batches} ({len(batch)} organizations)"
+            )
+
+            batch_results = await self._preseed_organizations_batch(batch)
+
+            total_created += batch_results["created"]
+            total_updated += batch_results["updated"]
+            total_failed += batch_results["failed"]
+
+        self.logger.info(
+            f"Pre-seeding complete. Total Created: {total_created}, "
+            f"Updated: {total_updated}, Failed/Skipped: {total_failed}"
+        )
+        return {
+            "created": total_created,
+            "updated": total_updated,
+            "failed": total_failed,
+        }
+
+    async def _preseed_organizations_batch(
+        self, batch_org_data: List[Dict[str, Any]]
+    ) -> Dict[str, int]:
+        """
+        Pre-seeds a single batch of organizations using a single transaction.
+        """
         url_to_org_map: Dict[str, Dict[str, Any]] = {}
         created_count = 0
         updated_count = 0
@@ -34,7 +73,7 @@ class OrganisationService:
 
         try:
             async with self.orgs_repo.db.transaction():
-                for org_to_seed in sorted_org_data:
+                for org_to_seed in batch_org_data:
                     current_org_name = org_to_seed.get("org")
                     current_org_url = org_to_seed.get("url")
                     parent_org_url_from_seed = org_to_seed.get(
@@ -48,9 +87,7 @@ class OrganisationService:
                         failed_count += 1
                         continue
 
-                    # --- LOGIC TO RESTORE UPDATE COUNT ---
-                    # 1. Check if the org already exists in the DB from a previous run.
-                    # We must do this before the create call.
+                    # Check if the org already exists in the DB
                     existing_org = await self.orgs_repo.find_by_url(
                         current_org_url
                     )
@@ -79,7 +116,8 @@ class OrganisationService:
                             ]
                         else:
                             self.logger.warning(
-                                f"For org '{current_org_name}', parent with URL '{parent_org_url_from_seed}' not found. Creating as top-level."
+                                f"For org '{current_org_name}', parent with URL "
+                                f"'{parent_org_url_from_seed}' not found. Creating as top-level."
                             )
 
                     org_metadata = {
@@ -110,7 +148,6 @@ class OrganisationService:
                     )
 
                     if created_or_updated_id:
-                        # 2. Increment the correct counter based on our earlier check.
                         if is_update:
                             updated_count += 1
                         else:
@@ -128,18 +165,15 @@ class OrganisationService:
 
         except Exception as e:
             self.logger.error(
-                f"Exception during pre-seeding transaction, rolling back all changes. Error: {e}",
+                f"Exception during batch pre-seeding transaction, rolling back all changes. Error: {e}",
                 exc_info=True,
             )
             return {
                 "created": 0,
                 "updated": 0,
-                "failed": len(org_hierarchy_data),
+                "failed": len(batch_org_data),
             }
 
-        self.logger.info(
-            f"Pre-seeding complete. Created: {created_count}, Updated: {updated_count}, Failed/Skipped: {failed_count}"
-        )
         return {
             "created": created_count,
             "updated": updated_count,
@@ -209,7 +243,8 @@ class OrganisationService:
                 )
         else:
             self.logger.warning(
-                f"Parent org '{parent_name}' not found and no parent URL provided for creation. Linking will be skipped."
+                f"Parent org '{parent_name}' not found and no parent URL provided "
+                f"for creation. Linking will be skipped."
             )
         return parent_org_id
 

@@ -199,7 +199,7 @@ class DisambiguationService:
         # It's a hard conflict only if BOTH roles are non-permissible
         return not is_rec1_permissible and not is_rec2_permissible
 
-    def _enrich_record(
+    async def _enrich_record(
         self, raw_record: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """
@@ -211,10 +211,10 @@ class DisambiguationService:
         org_url = raw_record.get("url")
         if org_url:
             # Use the repository to find the org and its ancestors
-            org = self.orgs_repo.find_by_url(org_url)
+            org = await self.orgs_repo.find_by_url(org_url)
             if org:
                 # get_all_ancestors is sorted by depth, so the first is the top
-                ancestors = self.orgs_repo.get_all_ancestors(org["id"])
+                ancestors = await self.orgs_repo.get_all_ancestors(org["id"])
                 if ancestors:
                     parent_ministry_name = ancestors[0]["name"]
                 else:
@@ -279,7 +279,7 @@ class DisambiguationService:
 
         return score
 
-    def cluster_employment_records(
+    async def cluster_employment_records(
         self, raw_records: List[Dict[str, Any]]
     ) -> List[List[Dict[str, Any]]]:
         """
@@ -289,7 +289,7 @@ class DisambiguationService:
         # 1. Enrich all records with data from the database
         enriched_records = []
         for rec in raw_records:
-            enriched = self._enrich_record(rec)
+            enriched = await self._enrich_record(rec)
             if enriched:
                 enriched_records.append(enriched)
 

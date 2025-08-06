@@ -74,11 +74,13 @@ class TemporalGraph:
         return await self.employment_service.add_employment_record(record)
 
     async def preseed_orgs(
-        self, org_hierarchy_data: List[Dict[str, Any]]
+        self,
+        org_hierarchy_data: List[Dict[str, Any]],
+        batch_size: int = 100,
     ) -> Dict[str, int]:
         """Pre-seed organizations based on a hierarchy data list"""
         return await self.orgs_service.preseed_organizations(
-            org_hierarchy_data
+            org_hierarchy_data, batch_size=batch_size
         )
 
     async def bulk_insert_records(
