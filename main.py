@@ -1,7 +1,7 @@
 from nicegui import ui, app
 from dotenv import load_dotenv
 import os
-
+from loguru import logger
 
 import src.frontend.theme as theme
 from src.frontend.utils.views import register_views
@@ -10,12 +10,18 @@ from src.state import shutdown_app_state, initialize_app_state
 load_dotenv()
 
 # check for debug mode
-if os.getenv("DEBUG_MODE", "False").lower() == "true":
+if os.getenv("LOG_LEVEL", "INFO").upper() == "DEBUG":
     # Enable debug mode for NiceGUI
     os.environ["LOGURU_LEVEL"] = "DEBUG"
 else:
     # Set the log level to INFO for production
     os.environ["LOGURU_LEVEL"] = "INFO"
+
+# check for development mode
+if os.getenv("DEV_MODE", "false").lower() == "true":
+    # Enable development mode for NiceGUI
+    os.environ["NICEGUI_DEV_MODE"] = "true"
+    logger.info("Development mode is enabled. All authentication checks will be skipped.")
 
 
 @ui.page("/")
