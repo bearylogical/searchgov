@@ -1,102 +1,137 @@
 # SGDI Analytics
 
-This project provides a platform for analyzing the Singapore Government Directory (SGDI) data. It constructs a temporal graph of organizations and personnel, allowing for insights into career progressions, organizational structures, and connectivity within the Singapore public service.
+A platform for analysing Singapore Government Directory (SGDI) data — career histories, organisational hierarchies, and workforce patterns across the public service.
 
 ## Features
 
--   **Temporal Graph Database**: Models the evolution of government organizations and employment history over time using PostgreSQL with the AGE extension.
--   **Career Progression Analysis**: Trace the career path of individuals across different government bodies.
--   **Organizational Structure Visualization**: Generate and visualize organizational charts for ministries and their sub-entities at different points in time.
--   **Connectivity Analysis**: Find the shortest path of connections between any two individuals in the directory.
--   **Web Interface**: An interactive web application built with [NiceGUI](https://nicegui.io/) to explore the data and visualizations.
--   **Data Cleaning & Preprocessing**: Robust scripts to clean, process, and structure the raw SGDI data.
+- **Career Progression** — Trace how individuals have moved across roles and organisations over time.
+- **Organisation Explorer** — Browse ministry and agency hierarchies and see how they evolved at any point in time.
+- **Temporal Graph** — Models employment and org structure as a graph, enabling shortest-path and centrality queries.
+- **REST API** — FastAPI backend with full OpenAPI docs at `/docs`.
 
 ## Tech Stack
 
--   **Backend**: Python
--   **Web Framework**: [NiceGUI](https://nicegui.io/)
--   **Database**: PostgreSQL with [Apache AGE](https://age.apache.org/) extension for graph capabilities.
--   **Package Management**: [uv](https://github.com/astral-sh/uv)
--   **Containerization**: Docker, Docker Compose
+| Layer | Technology |
+|---|---|
+| Frontend | SvelteKit 2 + Svelte 5 + Tailwind CSS v4 |
+| Backend | FastAPI + uvicorn |
+| Database | PostgreSQL + asyncpg |
+| Auth | Supabase (JWT) |
+| Package management | [uv](https://github.com/astral-sh/uv) |
+| Containerisation | Docker (multi-stage), Docker Compose |
 
-## Setup and Installation
+## Accessing the UI
+
+### Local development
+
+1. Start the backend:
+   ```bash
+   uv sync
+   uv run api_main.py
+   # API + UI available at http://localhost:8081
+   ```
+
+2. (Optional) Run the frontend dev server for hot-reload:
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   # Frontend at http://localhost:5173 (proxies /api → localhost:8081)
+   ```
+
+### Docker (recommended for deployment)
+
+```bash
+docker compose up --build
+# UI + API available at http://localhost:8081
+```
+
+### Pages
+
+| URL | Description |
+|---|---|
+| `/` | Dashboard with live stats |
+| `/progression` | Career progression explorer |
+| `/organisation` | Organisation hierarchy explorer |
+| `/login` | Sign in |
+| `/docs` | OpenAPI / Swagger UI |
+
+## Setup
 
 ### Prerequisites
 
--   Python 3.12+
--   Docker and Docker Compose
--   [uv](https://github.com/astral-sh/uv) installed (`pip install uv`)
+- Python 3.11
+- Node.js 22+
+- PostgreSQL (plain, no extensions required)
+- [uv](https://github.com/astral-sh/uv)
+- Supabase project (for auth)
 
-### 1. Database Setup
+### Environment variables
 
-The application requires a PostgreSQL instance with the Apache AGE extension enabled. The easiest way to get this running is via Docker.
-
-```bash
-# You can use a pre-built image with AGE
-docker run -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=searchgov --name age_db -d apache/age
-```
-
-### 2. Environment Variables
-
-Copy the sample environment file and update it with your database credentials if they differ from the defaults.
+Copy `.env.example` and fill in your values:
 
 ```bash
-cp .env.sample .env
+cp .env.example .env
 ```
 
-### 3. Install Dependencies
+Key variables:
 
-Use `uv` to sync the project dependencies from the lockfile.
+```
+POSTGRES_HOST=localhost
+POSTGRES_DB=searchgov
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=password
 
-```bash
-uv sync --locked
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-anon-key
+
+ALLOWED_ORIGINS=http://localhost:5173   # dev only; leave empty in production
+REQUIRE_AUTH=true                        # set false to skip JWT locally
 ```
 
-### 4. Data Ingestion
+### Data ingestion
 
-The notebooks in the `notebooks/` directory are used for data processing and ingestion. You will need to run them in sequence to populate the database.
+Run the notebooks in order to populate the database:
 
-1.  **`notebooks/cleaning.ipynb`**: Cleans the raw data and produces `tenure.parquet` and `orgs.parquet`.
-2.  **`notebooks/graph_ingestion.ipynb`**: Ingests the cleaned data into the PostgreSQL/AGE database.
+1. `notebooks/cleaning.ipynb` — cleans raw SGDI data → `tenure.parquet`, `orgs.parquet`
+2. `notebooks/graph_ingestion.ipynb` — ingests cleaned data into PostgreSQL
 
-## Running the Application
-
-### Locally
-
-Once the setup is complete, you can run the web application using `uv`.
-
-```bash
-uv run main.py
-```
-
-The application will be available at `http://localhost:8080`.
-
-### Using Docker
-
-You can also build and run the entire application using Docker Compose. This is the recommended method for deployment.
-
-```bash
-docker-compose up --build
-```
-
-The application will be available at `http://localhost:8080`.
-
-## Project Structure
+## Project structure
 
 ```
 .
-├── data/                # Raw and processed data (gitignored)
-├── notebooks/           # Jupyter notebooks for data exploration, cleaning, and ingestion
-├── src/                 # Main source code
-│   ├── app/             # Core application logic (e.g., TemporalGraph)
-│   ├── database/        # Database connection and schema management
-│   ├── frontend/        # NiceGUI web interface components and views
-│   ├── models/          # Machine learning models (e.g., name embeddings)
-│   └── preprocess/      # Data preprocessing scripts
-├── tests/               # Unit and integration tests
-├── .env.sample          # Environment variable template
-├── docker-compose.yml   # Docker Compose configuration
-├── dockerfile           # Dockerfile for the application
-├── main.py              # Main entry point for the NiceGUI app
-└── pyproject.toml       # Project metadata and dependencies
+├── api_main.py          # FastAPI entry point (port 8081)
+├── frontend/            # SvelteKit SPA
+│   └── src/
+│       ├── lib/         # api.ts, auth.ts
+│       └── routes/      # +page.svelte files (/, /progression, /organisation, /login)
+├── src/
+│   ├── api/             # FastAPI routers, schemas, dependencies
+│   ├── app/             # TemporalGraph facade
+│   ├── database/        # asyncpg connection + schema
+│   ├── middleware/       # JWT auth, logging, correlation ID
+│   ├── repositories/    # SQL access layer
+│   └── services/        # Business logic
+├── notebooks/           # Data cleaning + ingestion
+├── tests/
+├── Dockerfile           # Multi-stage: Node builds SPA → Python serves it
+├── docker-compose.yml
+└── pyproject.toml
+```
+
+## Development commands
+
+```bash
+# Backend
+uv sync
+uv run ruff check .
+uv run ruff format .
+uv run pytest
+
+# Frontend
+cd frontend
+npm run dev        # dev server with HMR
+npm run build      # compile to frontend/build/
+npm run check      # TypeScript + Svelte type-check
 ```
