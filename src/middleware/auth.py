@@ -6,12 +6,12 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from loguru import logger
 
-# Paths that never require authentication.
-_EXEMPT_EXACT = frozenset(
-    {"/api/v1/system/health", "/docs", "/openapi.json", "/redoc"}
-)
-# Path prefixes that never require authentication (static assets, etc.).
-_EXEMPT_PREFIXES = ("/_", "/favicon", "/static")
+# Only these prefixes require authentication — everything else is public
+# (SPA routes, static assets, docs).
+_AUTH_PREFIXES = ("/api/",)
+
+# Specific API paths that are always public.
+_EXEMPT_EXACT = frozenset({"/api/v1/system/health"})
 
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
@@ -26,10 +26,12 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Always allow exempt paths.
-        if path in _EXEMPT_EXACT or any(
-            path.startswith(p) for p in _EXEMPT_PREFIXES
-        ):
+        # Only protect API routes — SPA, docs, and static files pass through.
+        if not any(path.startswith(p) for p in _AUTH_PREFIXES):
+            return await call_next(request)
+
+        # Always allow specific public API endpoints.
+        if path in _EXEMPT_EXACT:
             return await call_next(request)
 
         # Honour REQUIRE_AUTH=false for local dev without Supabase.
