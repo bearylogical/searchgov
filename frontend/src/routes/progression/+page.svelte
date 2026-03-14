@@ -44,7 +44,12 @@
 		career = [];
 		loadingCareer = true;
 		try {
-			career = await people.employment(person.id);
+			const raw = await people.employment(person.id);
+			career = [...raw].sort((a, b) => {
+				if (!a.start_date) return 1;
+				if (!b.start_date) return -1;
+				return a.start_date.localeCompare(b.start_date);
+			});
 		} finally {
 			loadingCareer = false;
 		}
@@ -71,19 +76,46 @@
 	function isActive(e: EmploymentEntry) {
 		return !e.end_date;
 	}
+
+	// Derived profile stats
+	const aliases = $derived(
+		[...new Set(career.map(e => e.person_name).filter(Boolean))] as string[]
+	);
+
+	const employmentSpan = $derived(() => {
+		const starts = career.map(e => e.start_date).filter(Boolean) as string[];
+		const ends = career.map(e => e.end_date).filter(Boolean) as string[];
+		return {
+			from: starts.length ? formatDate(starts[0]) : null,
+			to: career.some(e => !e.end_date) ? 'Present' : (ends.length ? formatDate(ends[ends.length - 1]) : null)
+		};
+	});
+
+	const distinctOrgs = $derived(
+		[...new Set(career.map(e => orgLabel(e)))]
+	);
+
+	// Most recent org label for search result chips
+	function latestOrg(person: PersonResult): string | null {
+		const profile = person.employment_profile;
+		if (!profile?.length) return null;
+		const sorted = [...profile].sort((a, b) => {
+			if (!a.start_date) return 1;
+			if (!b.start_date) return -1;
+			return b.start_date.localeCompare(a.start_date);
+		});
+		return sorted[0].org_name ?? sorted[0].entity_name ?? null;
+	}
 </script>
 
 <div class="flex-1 flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem - 49px)">
 	<!-- ── Left panel: search + results ───────────────── -->
 	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 bg-white">
-		<!-- Search header -->
 		<div class="p-4 border-b border-gray-100">
 			<h1 class="text-sm font-semibold text-gray-900 mb-3">Career Progression</h1>
 			<div class="relative">
-				<svg
-					class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
-					fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
-				>
+				<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+					fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
 				</svg>
 				<input
@@ -98,18 +130,15 @@
 			</div>
 		</div>
 
-		<!-- Results -->
 		<div class="flex-1 overflow-y-auto">
 			{#if searching}
 				<div class="p-4 space-y-2">
 					{#each Array(4) as _}
-						<div class="h-14 bg-gray-100 rounded-lg animate-pulse"></div>
+						<div class="h-16 bg-gray-100 rounded-lg animate-pulse"></div>
 					{/each}
 				</div>
 			{:else if searchError}
-				<div class="p-4">
-					<p class="text-sm text-red-600">{searchError}</p>
-				</div>
+				<div class="p-4"><p class="text-sm text-red-600">{searchError}</p></div>
 			{:else if query && results.length === 0}
 				<div class="p-8 text-center">
 					<svg class="w-8 h-8 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -130,17 +159,21 @@
 						<li>
 							<button
 								onclick={() => selectPerson(person)}
-								class="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center gap-3
+								class="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors
 								       {selected?.id === person.id ? 'bg-blue-50 border-r-2 border-blue-500' : ''}"
 							>
-								<div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0 text-xs font-semibold text-gray-600">
-									{person.name.slice(0, 2).toUpperCase()}
-								</div>
-								<div class="min-w-0">
-									<p class="text-sm font-medium text-gray-900 truncate">{person.name}</p>
-									{#if person.email}
-										<p class="text-xs text-gray-400 truncate">{person.email}</p>
-									{/if}
+								<div class="flex items-center gap-3">
+									<div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0 text-xs font-semibold text-gray-600">
+										{person.name.slice(0, 2).toUpperCase()}
+									</div>
+									<div class="min-w-0 flex-1">
+										<p class="text-sm font-medium text-gray-900 truncate">{person.name}</p>
+										{#if latestOrg(person)}
+											<p class="text-xs text-gray-400 truncate mt-0.5">{latestOrg(person)}</p>
+										{:else if person.email}
+											<p class="text-xs text-gray-400 truncate mt-0.5">{person.email}</p>
+										{/if}
+									</div>
 								</div>
 							</button>
 						</li>
@@ -150,7 +183,7 @@
 		</div>
 	</aside>
 
-	<!-- ── Right panel: timeline ──────────────────────── -->
+	<!-- ── Right panel ────────────────────────────────── -->
 	<section class="flex-1 overflow-y-auto bg-gray-50">
 		{#if !selected}
 			<div class="h-full flex items-center justify-center p-8">
@@ -162,13 +195,13 @@
 				</div>
 			</div>
 		{:else}
-			<div class="max-w-2xl mx-auto p-6">
-				<!-- Profile card -->
-				<div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm mb-6 flex items-center gap-4">
+			<div class="p-6 space-y-6">
+				<!-- Profile header -->
+				<div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm flex items-center gap-4">
 					<div class="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg shrink-0">
 						{selected.name.slice(0, 2).toUpperCase()}
 					</div>
-					<div class="min-w-0">
+					<div class="min-w-0 flex-1">
 						<h2 class="text-base font-semibold text-gray-900">{selected.name}</h2>
 						{#if selected.email}
 							<p class="text-sm text-gray-500 truncate">{selected.email}</p>
@@ -185,61 +218,113 @@
 					{/if}
 				</div>
 
-				<!-- Timeline -->
 				{#if loadingCareer}
-					<div class="space-y-3">
-						{#each Array(5) as _}
-							<div class="flex gap-4">
-								<div class="w-3 h-3 rounded-full bg-gray-200 mt-1.5 animate-pulse shrink-0"></div>
-								<div class="flex-1 h-20 bg-gray-100 rounded-lg animate-pulse"></div>
-							</div>
-						{/each}
+					<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+						<div class="space-y-3">
+							{#each Array(5) as _}
+								<div class="flex gap-4">
+									<div class="w-3 h-3 rounded-full bg-gray-200 mt-1.5 animate-pulse shrink-0"></div>
+									<div class="flex-1 h-20 bg-gray-100 rounded-lg animate-pulse"></div>
+								</div>
+							{/each}
+						</div>
+						<div class="h-64 bg-gray-100 rounded-xl animate-pulse"></div>
 					</div>
 				{:else if career.length === 0}
 					<div class="text-center py-12">
 						<p class="text-sm text-gray-400">No employment records found.</p>
 					</div>
 				{:else}
-					<div class="relative">
-						<!-- Vertical line -->
-						<div class="absolute left-[5px] top-2 bottom-2 w-px bg-gray-200"></div>
+					<div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
 
-						<ul class="space-y-3">
-							{#each career as entry}
-								<li class="pl-7 relative">
-									<!-- Timeline dot -->
-									<div
-										class="absolute left-0 top-3.5 w-[11px] h-[11px] rounded-full border-2 border-white ring-1
-										       {isActive(entry) ? 'bg-blue-500 ring-blue-400' : 'bg-gray-300 ring-gray-200'}"
-									></div>
+						<!-- ── Career Timeline ──────────────────── -->
+						<div>
+							<h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Career Timeline</h3>
+							<div class="relative">
+								<div class="absolute left-[5px] top-2 bottom-2 w-px bg-gray-200"></div>
+								<ul class="space-y-3">
+									{#each career as entry}
+										<li class="pl-7 relative">
+											<div class="absolute left-0 top-3.5 w-[11px] h-[11px] rounded-full border-2 border-white ring-1
+											            {isActive(entry) ? 'bg-blue-500 ring-blue-400' : 'bg-gray-300 ring-gray-200'}">
+											</div>
+											<div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+												<div class="flex items-start justify-between gap-2 flex-wrap">
+													<p class="text-sm font-semibold text-gray-900 leading-snug">{orgLabel(entry)}</p>
+													{#if isActive(entry)}
+														<span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5 shrink-0">
+															<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+															Active
+														</span>
+													{/if}
+												</div>
+												{#if entry.rank}
+													<p class="text-sm text-gray-600 mt-0.5">{entry.rank}</p>
+												{/if}
+												{#if entry.person_name && entry.person_name !== selected.name}
+													<p class="text-xs text-gray-400 mt-0.5 italic">as "{entry.person_name}"</p>
+												{/if}
+												<div class="flex items-center gap-2 mt-2 flex-wrap">
+													<span class="text-xs text-gray-400">
+														{formatDate(entry.start_date)} → {formatDate(entry.end_date)}
+													</span>
+													{#if entry.tenure_days}
+														<span class="text-xs font-medium text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">
+															{formatDuration(entry.tenure_days)}
+														</span>
+													{/if}
+												</div>
+											</div>
+										</li>
+									{/each}
+								</ul>
+							</div>
+						</div>
 
-									<div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-										<div class="flex items-start justify-between gap-2 flex-wrap">
-											<p class="text-sm font-semibold text-gray-900 leading-snug">{orgLabel(entry)}</p>
-											{#if isActive(entry)}
-												<span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5 shrink-0">
-													<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-													Active
-												</span>
-											{/if}
-										</div>
-										{#if entry.rank}
-											<p class="text-sm text-gray-600 mt-0.5">{entry.rank}</p>
-										{/if}
-										<div class="flex items-center gap-2 mt-2 flex-wrap">
-											<span class="text-xs text-gray-400">
-												{formatDate(entry.start_date)} → {formatDate(entry.end_date)}
-											</span>
-											{#if entry.tenure_days}
-												<span class="text-xs font-medium text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">
-													{formatDuration(entry.tenure_days)}
-												</span>
-											{/if}
+						<!-- ── Individual Profile ───────────────── -->
+						<div class="space-y-4">
+							<h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Individual Profile</h3>
+
+							<!-- Summary card -->
+							<div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
+								{#if aliases.length > 1}
+									<div>
+										<p class="text-xs font-medium text-gray-500 mb-1">Also known as</p>
+										<div class="flex flex-wrap gap-1.5">
+											{#each aliases as alias}
+												<span class="text-xs bg-gray-100 text-gray-700 rounded-full px-2.5 py-0.5">{alias}</span>
+											{/each}
 										</div>
 									</div>
-								</li>
-							{/each}
-						</ul>
+								{/if}
+
+								{#if employmentSpan().from}
+									<div>
+										<p class="text-xs font-medium text-gray-500 mb-0.5">Employment span</p>
+										<p class="text-sm text-gray-800">{employmentSpan().from} — {employmentSpan().to}</p>
+									</div>
+								{/if}
+
+								<div>
+									<p class="text-xs font-medium text-gray-500 mb-0.5">Total roles</p>
+									<p class="text-sm text-gray-800">{career.length} role{career.length !== 1 ? 's' : ''} across {distinctOrgs.length} organisation{distinctOrgs.length !== 1 ? 's' : ''}</p>
+								</div>
+							</div>
+
+							<!-- Organisations list -->
+							<div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+								<p class="text-xs font-medium text-gray-500 mb-3">Organisations</p>
+								<ul class="space-y-2">
+									{#each distinctOrgs as org}
+										<li class="flex items-center gap-2">
+											<div class="w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0"></div>
+											<p class="text-sm text-gray-700 leading-snug">{org}</p>
+										</li>
+									{/each}
+								</ul>
+							</div>
+						</div>
+
 					</div>
 				{/if}
 			</div>
