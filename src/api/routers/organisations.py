@@ -1,5 +1,6 @@
 import re
-from typing import Any, Dict, List
+from datetime import date as dt_date
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -38,11 +39,13 @@ async def get_root_organisations(
 @router.get("/{org_id}/tree", response_model=List[Dict[str, Any]])
 async def get_org_tree(
     org_id: int,
-    date: str = Query(..., description="Target date (YYYY-MM-DD)"),
+    date: Optional[str] = Query(
+        None, description="Target date (YYYY-MM-DD); defaults to today"
+    ),
     facade=Depends(get_facade),
 ):
-    _validate_date(date, "date")
-    return await facade.get_active_descendants(org_id, date)
+    resolved = _validate_date(date, "date") if date else str(dt_date.today())
+    return await facade.get_active_descendants(org_id, resolved)
 
 
 @router.get("/{org_id}/timeline", response_model=List[str])
