@@ -2,6 +2,10 @@ from .base import BaseRepository
 from typing import Dict, Any, Optional, List
 import json
 
+from loguru import logger   
+# Default similarity threshold for fuzzy matching in this repository
+DEFAULT_MIN_SIMILARITY_THRESHOLD_REPO = 0.3
+
 
 class OrganisationsRepository(BaseRepository):
     def _row_to_dict(self, row: Any) -> Optional[Dict[str, Any]]:
@@ -230,6 +234,67 @@ class OrganisationsRepository(BaseRepository):
             )
             # Fetch all rows and flatten the list of tuples into a list of strings
             return [row["event_date"].isoformat() for row in rows]
+        
+    async def search_by_name_fuzzy(
+        self,
+        name_query: str,
+        limit: int = 10,
+        min_similarity_threshold: float = DEFAULT_MIN_SIMILARITY_THRESHOLD_REPO,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fuzzy search for organisation by name using trigram similarity.
+        Returns a list of organisation records, each including a 'sim_score'.
+        Falls back to ILIKE if the pg_trgm extension is not available.
+        Requires the pg_trgm extension to be enabled in PostgreSQL for trigram search.
+        """
+        try:
+            async with self.db.acquire() as conn:
+                # Attempt trigram similarity search
+                # The 'name % $1' condition helps leverage GIN/GiST trigram indexes.
+                # The 'similarity(name, $1) >= $2' is the actual threshold filter.
+                results = await conn.fetch(
+                    """
+                    SELECT *, similarity(name::text, $1) as sim_score
+                    FROM organizations
+                    WHERE name::text % $1 AND similarity(name::text, $1) >= $2
+                    ORDER BY sim_score DESC
+                    LIMIT $3;
+                    """,
+                    name_query,
+                    min_similarity_threshold,
+                    limit,
+                )
+                return [dict(row) for row in results]
+        except Exception as e:
+            # psycopg2.errors.UndefinedFunction (SQLSTATE 42883) indicates
+            # pg_trgm functions (similarity, %) are not available.
+            if hasattr(e, "pgcode") and e.pgcode == "42883":
+                self.logger.warning(
+                    f"pg_trgm not available for '{name_query}'. Falling back to ILIKE."
+                )
+                # Consider adding logging here if a logger is part of BaseRepository
+                # For example: self.logger.warning(f"pg_trgm not available for '{name_query}'. Falling back to ILIKE.")
+                async with self.db.acquire() as conn_fallback:
+                    rows = await conn_fallback.fetch(
+                        """
+                        SELECT *, 0.0 as sim_score -- Provide a dummy sim_score for API consistency
+                        FROM organizations
+                        WHERE name ILIKE $1
+                        ORDER BY length(name) ASC, name ASC -- Basic ordering for ILIKE
+                        LIMIT $2;
+                        """,
+                        f"%{name_query}%",
+                        limit,
+                    )
+                    return [dict(row) for row in rows]
+            else:
+                # For other unexpected database errors, re-raise to allow higher-level handling.
+                # Consider logging the error here as well.
+                # For example: self.logger.error(f"DB error during fuzzy search for '{name_query}': {e}")
+                logger.error(f"DB error during fuzzy search for '{name_query}': {e}")
+                raise
+        # This path should ideally not be reached if exceptions are properly handled/re-raised.
+        return []
 
     async def get_org_descendants_diff_between_dates(
         self,

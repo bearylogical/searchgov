@@ -209,95 +209,110 @@ class EmploymentService:
         disambiguation_key: int,
         org_cache: Dict[str, int],
         stats: Dict[str, int],
+        max_retries: int = 3,
     ):
         """
-        Optimized version that uses cached org lookups and bulk inserts.
+        Optimized version that uses cached org lookups and bulk inserts with retry logic.
         """
         if not cluster:
             return
 
-        try:
-            async with self.people_repo.db.transaction():
-                # Create person record
-                first_record = cluster[0]
-                person_id = await self.people_repo.create(
-                    {
-                        "name": person_name,
-                        "clean_name": first_record["clean_name"],
-                        "tel": first_record.get("tel"),
-                        "email": first_record.get("email"),
-                        "disambiguation_key": disambiguation_key,
-                        "metadata": {
-                            "raw_name": first_record.get("raw_name", ""),
-                            "type": first_record.get("type", "person"),
-                        },
-                    }
-                )
+        for attempt in range(max_retries):
+            try:
+                async with self.people_repo.db.transaction():
+                    # Create person record
+                    first_record = cluster[0]
+                    person_id = await self.people_repo.create(
+                        {
+                            "name": person_name,
+                            "clean_name": first_record["clean_name"],
+                            "tel": first_record.get("tel"),
+                            "email": first_record.get("email"),
+                            "disambiguation_key": disambiguation_key,
+                            "metadata": {
+                                "raw_name": first_record.get(
+                                    "raw_name", ""
+                                ),
+                                "type": first_record.get("type", "person"),
+                            },
+                        }
+                    )
 
-                if not person_id:
+                    if not person_id:
+                        self.logger.error(
+                            f"Failed to create person: {person_name}"
+                        )
+                        stats["failed"] += len(cluster)
+                        return
+
+                    # Batch process employment records
+                    employment_batch = []
+                    for record in cluster:
+                        # Use cached org lookup first
+                        org_id = org_cache.get(record.get("url"))
+
+                        if not org_id:
+                            # Fallback to individual lookup if not cached
+                            org_id = await self.org_service._get_org_id(
+                                record["org"],
+                                record.get("url"),
+                                record.get("parent_org_name"),
+                                record.get("parent_org_url"),
+                            )
+
+                        if org_id:
+                            employment_batch.append(
+                                {
+                                    "person_id": person_id,
+                                    "org_id": org_id,
+                                    "rank": record["rank"],
+                                    "start_date": record["start_date"],
+                                    "end_date": record["end_date"],
+                                    "tenure_days": record.get(
+                                        "tenure_days"
+                                    ),
+                                    "raw_name": record.get("raw_name", ""),
+                                    "metadata": {
+                                        "lower_name": record.get(
+                                            "lower_name", ""
+                                        ),
+                                        "source_url_for_employment": record.get(
+                                            "url", ""
+                                        ),
+                                    },
+                                }
+                            )
+                        else:
+                            self.logger.warning(
+                                f"Failed to find/create org for: {record['org']}"
+                            )
+                            stats["failed"] += 1
+
+                    # Bulk insert employment records
+                    for employment_data in employment_batch:
+                        employment_id = await self.employment_repo.create(
+                            employment_data
+                        )
+                        if employment_id:
+                            stats["successful"] += 1
+                        else:
+                            stats["failed"] += 1
+
+                # If successful, break out of retry loop
+                return
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    self.logger.warning(
+                        f"Attempt {attempt + 1}/{max_retries} failed for person '{person_name}': {e}. Retrying..."
+                    )
+                else:
                     self.logger.error(
-                        f"Failed to create person: {person_name}"
+                        f"All {max_retries} attempts failed for person '{person_name}': {e}",
+                        exc_info=True,
                     )
                     stats["failed"] += len(cluster)
-                    return
-
-                # Batch process employment records
-                employment_batch = []
-                for record in cluster:
-                    # Use cached org lookup first
-                    org_id = org_cache.get(record.get("url"))
-
-                    if not org_id:
-                        # Fallback to individual lookup if not cached
-                        org_id = await self.org_service._get_org_id(
-                            record["org"],
-                            record.get("url"),
-                            record.get("parent_org_name"),
-                            record.get("parent_org_url"),
-                        )
-
-                    if org_id:
-                        employment_batch.append(
-                            {
-                                "person_id": person_id,
-                                "org_id": org_id,
-                                "rank": record["rank"],
-                                "start_date": record["start_date"],
-                                "end_date": record["end_date"],
-                                "tenure_days": record.get("tenure_days"),
-                                "raw_name": record.get("raw_name", ""),
-                                "metadata": {
-                                    "lower_name": record.get(
-                                        "lower_name", ""
-                                    ),
-                                    "source_url_for_employment": record.get(
-                                        "url", ""
-                                    ),
-                                },
-                            }
-                        )
-                    else:
-                        self.logger.warning(
-                            f"Failed to find/create org for: {record['org']}"
-                        )
-                        stats["failed"] += 1
-
-                # Bulk insert employment records
-                for employment_data in employment_batch:
-                    employment_id = await self.employment_repo.create(
-                        employment_data
-                    )
-                    if employment_id:
-                        stats["successful"] += 1
-                    else:
-                        stats["failed"] += 1
-
-        except Exception as e:
-            self.logger.error(
-                f"Error processing cluster for person '{person_name}': {e}",
-                exc_info=True,
-            )
-            stats["failed"] += len(cluster)
+            # retry for failed records
 
     async def _process_person_cluster(
         self,

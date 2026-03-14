@@ -8,6 +8,9 @@ class SchemaManager:
     def __init__(self, db_connection: AsyncDatabaseConnection):
         self.db = db_connection
         self.logger = logger
+        self.logger.info(
+            "SchemaManager initialized with database connection"
+        )
 
     async def setup_schema(self):
         """Create complete database schema"""
@@ -75,7 +78,7 @@ class SchemaManager:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS people (
                 id SERIAL PRIMARY KEY,
-                name VARCHAR(500) NOT NULL, -- UNIQUE constraint removed from here
+                name VARCHAR(500) NOT NULL, 
                 clean_name VARCHAR(500) NOT NULL,
                 tel VARCHAR(50),
                 email VARCHAR(320),

@@ -105,7 +105,30 @@ class TemporalGraph:
         return await self.query_service.find_colleagues_at_date(
             person_name, target_date, is_fuzzy
         )
+    
+    async def find_any(
+        self,
+        query: str,
+        is_fuzzy: bool = True,
+    ) -> List[Dict]:
+        """Find any person, organisation entity by name"""
+        result = {}
+        result["people"] = await self.find_person_by_name(query, is_fuzzy)
+        result["organisations"] = await self.find_organisation_by_name(query, is_fuzzy)
 
+        return result
+    
+    async def find_organisation_by_name(
+        self,
+        org_name: str,
+        is_fuzzy: bool = True,
+    ) -> List[Dict]:
+        """Find an organisation by name, optionally using fuzzy matching"""
+        if is_fuzzy:
+            return await self.orgs_repo.search_by_name_fuzzy(org_name)
+        else:
+            return await self.orgs_repo.find_by_name(org_name)
+    
     async def find_person_by_name(
         self,
         person_name: str,
