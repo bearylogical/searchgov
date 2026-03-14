@@ -24,5 +24,5 @@ frontend/build/
 *.log
 dag.png
 
-# Docs
-*.md
+# Docs (README.md is needed by hatchling at build time — keep it)
+CLAUDE.md

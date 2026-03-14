@@ -24,16 +24,19 @@ WORKDIR /app
 # Copy dependency manifests first for better layer caching
 COPY pyproject.toml uv.lock ./
 
-# Install third-party dependencies only (skip building the local package
-# so this layer is cached independently of source changes)
+# Install third-party dependencies first for better layer caching
+# (skip local package — source not copied yet)
 RUN uv sync --frozen --no-dev --no-install-project
 
-# Copy application source
+# Copy application source and other required files
 COPY src/ src/
-COPY api_main.py ./
+COPY api_main.py README.md ./
 
 # Copy compiled frontend assets (served statically by FastAPI)
 COPY --from=frontend-builder /build/frontend/build ./frontend/build
+
+# Install the local project into the venv now that source is present
+RUN uv sync --frozen --no-dev
 
 # Run as non-root
 RUN addgroup --system app && adduser --system --ingroup app app
@@ -41,4 +44,5 @@ USER app
 
 EXPOSE 8081
 
-CMD ["uv", "run", "uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8081"]
+# Call uvicorn directly — avoids uv run overhead and re-sync at startup
+CMD [".venv/bin/uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8081"]
