@@ -2,7 +2,16 @@
 
 @theme {
 	--font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+	--font-size-xs: 0.75rem;
+	--font-size-sm: 0.8125rem;
+	--font-size-base: 0.9375rem;
+	--font-size-lg: 1.0625rem;
+	--font-size-xl: 1.1875rem;
+	--font-size-2xl: 1.375rem;
 }
+
+/* Class-based dark mode */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
 	*,
@@ -15,19 +24,18 @@
 		-webkit-font-smoothing: antialiased;
 		-moz-osx-font-smoothing: grayscale;
 		text-rendering: optimizeLegibility;
+		font-size: 15px;
 	}
 
 	body {
 		font-family: var(--font-sans);
 	}
 
-	/* Smooth focus rings */
 	:focus-visible {
 		outline: 2px solid #2563eb;
 		outline-offset: 2px;
 	}
 
-	/* Remove default button styles */
 	button {
 		cursor: pointer;
 	}

@@ -27,73 +27,54 @@
 
 <div class="flex-1 flex items-center justify-center p-4 sm:p-8">
 	<div class="w-full max-w-sm">
-		<!-- Branding -->
 		<div class="text-center mb-8">
-			<div
-				class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center
-				       mx-auto mb-4 shadow-md"
-			>
+			<div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center mx-auto mb-4 shadow-md">
 				<svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-					<path
-						d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4
-						10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0
-						011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0
-						001.414-1.414l-7-7z"
-					/>
+					<path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/>
 				</svg>
 			</div>
-			<h1 class="text-xl font-bold text-gray-900">SGDI Analytics</h1>
-			<p class="text-sm text-gray-500 mt-1">Sign in to your account</p>
+			<h1 class="text-xl font-bold text-gray-900 dark:text-gray-100">SGDI Analytics</h1>
+			<p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Sign in to your account</p>
 		</div>
 
-		<!-- Form card -->
-		<div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+		<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm p-6">
 			<form onsubmit={handleSubmit} class="space-y-4">
 				<div class="space-y-1">
-					<label for="email" class="block text-sm font-medium text-gray-700">
+					<label for="email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
 						Email address
 					</label>
 					<input
-						id="email"
-						type="email"
-						bind:value={email}
-						required
-						autocomplete="email"
+						id="email" type="email" bind:value={email} required autocomplete="email"
 						placeholder="you@agency.gov.sg"
-						class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
-						       bg-white text-gray-900 placeholder-gray-400 transition-colors
-						       focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+						class="w-full border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm
+						       bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500
+						       transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
 					/>
 				</div>
 
 				<div class="space-y-1">
-					<label for="password" class="block text-sm font-medium text-gray-700">
+					<label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
 						Password
 					</label>
 					<input
-						id="password"
-						type="password"
-						bind:value={password}
-						required
-						autocomplete="current-password"
-						class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
-						       bg-white text-gray-900 placeholder-gray-400 transition-colors
-						       focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+						id="password" type="password" bind:value={password} required autocomplete="current-password"
+						class="w-full border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm
+						       bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500
+						       transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
 					/>
 				</div>
 
 				{#if error}
-					<div class="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+					<div class="flex items-start gap-2 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2.5">
 						<svg class="w-4 h-4 text-red-500 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
 							<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
 						</svg>
-						<p class="text-sm text-red-700">{error}</p>
+						<p class="text-sm text-red-700 dark:text-red-400">{error}</p>
 					</div>
 				{/if}
 
 				<button
-					type="submit"
-					disabled={loading}
+					type="submit" disabled={loading}
 					class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm
 					       px-4 py-2.5 rounded-lg transition-colors mt-2
 					       disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
