@@ -47,12 +47,26 @@ async def get_career_by_id(
     return await facade.get_career_progression_by_person_id(person_id)
 
 
+@router.get("/similar-names", response_model=List[Dict[str, Any]])
+async def get_similar_names(
+    q: str = Query(..., description="Name to find variants for"),
+    limit: int = Query(10, ge=1, le=50),
+    facade=Depends(get_facade),
+):
+    return await facade.get_similar_names(q, limit=limit)
+
+
 @router.get("/career", response_model=List[Dict[str, Any]])
 async def get_career_by_name(
     name: str = Query(..., description="Person name"),
+    fuzzy: bool = Query(
+        True, description="Use fuzzy matching to include name variants"
+    ),
     facade=Depends(get_facade),
 ):
-    return await facade.get_career_progression_by_name(name)
+    return await facade.get_career_progression_by_name(
+        name, is_fuzzy=fuzzy
+    )
 
 
 @router.get("/{person_id}/colleagues", response_model=List[Dict[str, Any]])

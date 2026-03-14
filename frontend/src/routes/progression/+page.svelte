@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { people } from '$lib/api';
-	import type { PersonResult, EmploymentEntry } from '$lib/api';
+	import type { PersonResult, EmploymentEntry, NameVariant } from '$lib/api';
 	import { isAuthenticated } from '$lib/auth';
 	import { goto } from '$app/navigation';
 
@@ -16,6 +16,8 @@
 	let originalCareer = $state<EmploymentEntry[]>([]);
 	// Working copy — entries can be removed individually
 	let career = $state<EmploymentEntry[]>([]);
+	// Name variants with similarity scores fetched from backend
+	let nameVariants = $state<NameVariant[]>([]);
 	// Which name variants are toggled on
 	let activeNames = $state<Set<string>>(new Set());
 
@@ -30,6 +32,7 @@
 		selected = null;
 		career = [];
 		originalCareer = [];
+		nameVariants = [];
 		activeNames = new Set();
 		if (!query.trim()) { results = []; return; }
 		searchTimeout = setTimeout(runSearch, 300);
@@ -52,10 +55,16 @@
 		selected = person;
 		career = [];
 		originalCareer = [];
+		nameVariants = [];
 		activeNames = new Set();
 		loadingCareer = true;
 		try {
-			const raw = await people.employment(person.id);
+			// Fetch similar name variants (with scores) and full fuzzy career in parallel
+			const [variants, raw] = await Promise.all([
+				people.similarNames(person.name),
+				people.careerByName(person.name, true)
+			]);
+			nameVariants = variants;
 			const sorted = [...raw].sort((a, b) => {
 				if (!a.start_date) return 1;
 				if (!b.start_date) return -1;
@@ -64,16 +73,14 @@
 			originalCareer = sorted;
 			career = sorted;
 			// All name variants active by default
-			activeNames = new Set(sorted.map(e => e.person_name).filter(Boolean) as string[]);
+			activeNames = new Set(variants.map(v => v.name));
 		} finally {
 			loadingCareer = false;
 		}
 	}
 
-	// All unique name variants found across all records
-	const allNames = $derived(
-		[...new Set(originalCareer.map(e => e.person_name).filter(Boolean))] as string[]
-	);
+	// All unique name variants (from backend similarity search)
+	const allNames = $derived(nameVariants.map(v => v.name));
 
 	function toggleName(name: string) {
 		const next = new Set(activeNames);
@@ -100,7 +107,7 @@
 	}
 
 	function reset() {
-		activeNames = new Set(originalCareer.map(e => e.person_name).filter(Boolean) as string[]);
+		activeNames = new Set(nameVariants.map(v => v.name));
 		career = [...originalCareer];
 	}
 
@@ -271,11 +278,11 @@
 					</div>
 
 					<!-- Name variant toggles -->
-					{#if !loadingCareer && allNames.length > 1}
+					{#if !loadingCareer && nameVariants.length > 0}
 						<div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
 							<div class="flex items-center justify-between mb-2">
 								<p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-									Name variants — click to include / exclude
+									{nameVariants.length > 1 ? 'Name variants — click to include / exclude' : 'Matched name'}
 								</p>
 								{#if isDirty}
 									<button
@@ -287,15 +294,19 @@
 								{/if}
 							</div>
 							<div class="flex flex-wrap gap-1.5">
-								{#each allNames as name}
+								{#each nameVariants as variant}
 									<button
-										onclick={() => toggleName(name)}
-										class="text-xs px-2.5 py-1 rounded-full border transition-colors
-										       {activeNames.has(name)
+										onclick={() => toggleName(variant.name)}
+										title="Similarity score: {variant.score}%"
+										class="text-xs px-2.5 py-1 rounded-full border transition-colors flex items-center gap-1.5
+										       {activeNames.has(variant.name)
 										         ? 'bg-blue-600 text-white border-blue-600'
 										         : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600 line-through opacity-50'}"
 									>
-										{name}
+										{variant.name}
+										<span class="font-mono tabular-nums {activeNames.has(variant.name) ? 'text-blue-200' : 'text-gray-400 dark:text-gray-500'}">
+											{variant.score}%
+										</span>
 									</button>
 								{/each}
 							</div>

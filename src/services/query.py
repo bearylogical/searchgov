@@ -257,6 +257,74 @@ class QueryService:
             )
         return limited_final_names
 
+    async def get_similar_names_with_scores(
+        self,
+        name_query: str,
+        pg_similarity_threshold: float = DEFAULT_MIN_SIMILARITY_THRESHOLD,
+        fw_primary_threshold: float = DEFAULT_MIN_SIMILARITY_THRESHOLD,
+        limit: int = DEFAULT_MAX_SIMILAR_NAMES,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return name variants similar to *name_query* together with their
+        fuzzywuzzy token_set_ratio score (0-100).
+        Always includes the query name itself at score 100 if found in DB.
+        """
+        sql_limit = max(limit * 5, 20)
+        fw_threshold_int = int(fw_primary_threshold * 100)
+        candidates: List[Tuple[str, Optional[float]]] = []
+
+        try:
+            async with self.db.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT clean_name,
+                           similarity(clean_name, $1) AS sim_score
+                    FROM people
+                    WHERE clean_name % $1
+                      AND similarity(clean_name, $1) >= $2
+                    ORDER BY sim_score DESC
+                    LIMIT $3;
+                    """,
+                    name_query,
+                    pg_similarity_threshold,
+                    sql_limit,
+                )
+                if rows:
+                    candidates = [
+                        (r["clean_name"], r["sim_score"]) for r in rows
+                    ]
+                else:
+                    rows = await conn.fetch(
+                        "SELECT clean_name FROM people "
+                        "WHERE clean_name ILIKE $1 LIMIT $2",
+                        f"%{name_query}%",
+                        sql_limit,
+                    )
+                    candidates = [(r["clean_name"], None) for r in rows]
+        except Exception as e:
+            self.logger.error(
+                f"Error fetching similar names for '{name_query}': {e}"
+            )
+            return []
+
+        query_lower = name_query.lower()
+        results: List[Dict[str, Any]] = []
+        seen: set = set()
+        for cand_name, _pg_score in candidates:
+            if cand_name in seen:
+                continue
+            fw_score = fuzz.token_set_ratio(
+                query_lower, cand_name.lower()
+            )
+            if fw_score >= fw_threshold_int:
+                seen.add(cand_name)
+                results.append(
+                    {"name": cand_name, "score": fw_score}
+                )
+
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:limit]
+
     def _deduplicate_list_of_dicts(
         self, list_of_dicts: List[Dict]
     ) -> List[Dict]:

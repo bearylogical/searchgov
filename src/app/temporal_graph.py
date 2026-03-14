@@ -212,6 +212,16 @@ class TemporalGraph:
             min_links_for_pairwise_check=min_links_for_pairwise_check,
         )
 
+    async def get_similar_names(
+        self,
+        name: str,
+        limit: int = 10,
+    ) -> List[Dict]:
+        """Return name variants similar to *name* with fuzzywuzzy scores."""
+        return await self.query_service.get_similar_names_with_scores(
+            name, limit=limit
+        )
+
     async def get_career_progression_by_person_id(
         self, person_id: int
     ) -> List[Dict]:

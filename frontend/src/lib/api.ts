@@ -64,6 +64,12 @@ export interface OrgResult {
 	metadata?: Record<string, unknown>;
 }
 
+export interface NameVariant {
+	name: string;
+	/** fuzzywuzzy token_set_ratio score 0–100 */
+	score: number;
+}
+
 export interface PathNode {
 	node_id: string;
 	node_type: string;
@@ -85,9 +91,14 @@ export const people = {
 	career: (personId: number) =>
 		apiFetch<EmploymentEntry[]>(`/people/${personId}/career`),
 
-	careerByName: (name: string) =>
+	careerByName: (name: string, fuzzy = true) =>
 		apiFetch<EmploymentEntry[]>(
-			`/people/career?name=${encodeURIComponent(name)}`
+			`/people/career?name=${encodeURIComponent(name)}&fuzzy=${fuzzy}`
+		),
+
+	similarNames: (name: string, limit = 10) =>
+		apiFetch<NameVariant[]>(
+			`/people/similar-names?q=${encodeURIComponent(name)}&limit=${limit}`
 		),
 
 	colleagues: (personId: number, date?: string) => {
