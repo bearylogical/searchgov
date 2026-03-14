@@ -21,8 +21,9 @@ WORKDIR /app
 # Copy dependency manifests first for better layer caching
 COPY pyproject.toml uv.lock ./
 
-# Install production dependencies only
-RUN uv sync --frozen --no-dev --no-editable
+# Install third-party dependencies only (skip building the local package
+# so this layer is cached independently of source changes)
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy application source
 COPY src/ src/
