@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from supabase import create_client
 from loguru import logger
@@ -106,13 +107,26 @@ def create_api() -> FastAPI:
     # Only mounted when the build directory exists so the API starts
     # cleanly during development before the frontend is built.
     # ------------------------------------------------------------------
-    spa_dir = os.path.join(
+    spa_dir = os.path.normpath(os.path.join(
         os.path.dirname(__file__), "..", "..", "frontend", "build"
-    )
+    ))
     if os.path.isdir(spa_dir):
+        # Mount immutable hashed assets under /_app for cache efficiency.
         app.mount(
-            "/", StaticFiles(directory=spa_dir, html=True), name="spa"
+            "/_app",
+            StaticFiles(directory=os.path.join(spa_dir, "_app")),
+            name="spa-assets",
         )
+
+        # Catch-all: serve named static files that exist (robots.txt, etc.),
+        # otherwise fall back to index.html for client-side routing.
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def serve_spa(full_path: str):
+            candidate = os.path.join(spa_dir, full_path)
+            if full_path and os.path.isfile(candidate):
+                return FileResponse(candidate)
+            return FileResponse(os.path.join(spa_dir, "index.html"))
+
         logger.info("Serving SPA from {}", spa_dir)
 
     return app
