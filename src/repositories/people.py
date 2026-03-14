@@ -218,7 +218,7 @@ class PeopleRepository(BaseRepository):
             result = await conn.fetchrow(
                 """
                 SELECT
-                    COUNT(DISTINCT name) AS unique_names,
+                    COUNT(DISTINCT name) AS unique_names
                 FROM
                     people;
             """
