@@ -4,8 +4,10 @@
 	import { isAuthenticated } from '$lib/auth';
 	import { goto } from '$app/navigation';
 
-	// Redirect to login if not authenticated.
-	if (!$isAuthenticated) goto('/login?redirect=/progression');
+	// Reactive guard — runs on mount and whenever auth state changes.
+	$effect(() => {
+		if (!$isAuthenticated) goto('/login?redirect=/progression');
+	});
 
 	let query = $state('');
 	let results = $state<PersonResult[]>([]);
@@ -43,7 +45,7 @@
 		career = [];
 		loadingCareer = true;
 		try {
-			career = await people.career(person.person_id);
+			career = await people.career(person.id);
 		} finally {
 			loadingCareer = false;
 		}

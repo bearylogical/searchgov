@@ -1,10 +1,22 @@
+import re
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.dependencies import get_facade
 
 router = APIRouter()
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_date(value: Optional[str], param: str) -> Optional[str]:
+    if value is not None and not _DATE_RE.match(value):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{param} must be YYYY-MM-DD, got: {value!r}",
+        )
+    return value
 
 
 @router.get("/search", response_model=List[Dict[str, Any]])
@@ -49,15 +61,25 @@ async def get_colleagues(
     date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
     facade=Depends(get_facade),
 ):
-    # find_colleagues takes person_name, but we have person_id
-    # We'll use person_id as a string identifier with target_date
-    return await facade.find_colleagues(str(person_id), target_date=date)
+    _validate_date(date, "date")
+    # find_colleagues is name-based; resolve the name from the person_id first.
+    records = await facade.find_employment_profile_by_person_id(person_id)
+    if not records:
+        raise HTTPException(status_code=404, detail="Person not found")
+    person_name = records[0].get("person_name") or records[0].get("name")
+    if not person_name:
+        raise HTTPException(
+            status_code=404, detail="Could not resolve person name"
+        )
+    return await facade.find_colleagues(person_name, target_date=date)
 
 
 @router.get("/{person_id}/connections", response_model=List[Dict[str, Any]])
 async def get_connections(
     person_id: int,
-    limit: int = Query(50, description="Maximum results"),
+    limit: int = Query(50, ge=1, le=500, description="Maximum results"),
     facade=Depends(get_facade),
 ):
-    return await facade.find_people_by_temporal_overlap(person_id, limit=limit)
+    return await facade.find_people_by_temporal_overlap(
+        person_id, limit=limit
+    )

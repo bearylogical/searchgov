@@ -8,7 +8,7 @@ from loguru import logger
 import src.frontend.theme as theme
 from src.frontend.utils.views import register_views
 from src.state import shutdown_app_state, initialize_app_state
-from src.middleware import AuthMiddleware
+from src.middleware.nicegui_auth import AuthMiddleware
 
 load_dotenv()
 

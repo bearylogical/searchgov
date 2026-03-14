@@ -4,7 +4,10 @@
 	import { isAuthenticated } from '$lib/auth';
 	import { goto } from '$app/navigation';
 
-	if (!$isAuthenticated) goto('/login?redirect=/organisation');
+	// Reactive guard — runs on mount and whenever auth state changes.
+	$effect(() => {
+		if (!$isAuthenticated) goto('/login?redirect=/organisation');
+	});
 
 	let query = $state('');
 	let results = $state<OrgResult[]>([]);
@@ -47,8 +50,8 @@
 		loadingTree = true;
 		try {
 			[tree, timeline] = await Promise.all([
-				organisations.tree(org.org_id),
-				organisations.timeline(org.org_id)
+				organisations.tree(org.id),
+				organisations.timeline(org.id)
 			]);
 			if (timeline.length > 0) selectedDate = timeline[timeline.length - 1];
 		} finally {
@@ -60,7 +63,7 @@
 		if (!selected) return;
 		loadingTree = true;
 		try {
-			tree = await organisations.tree(selected.org_id, selectedDate);
+			tree = await organisations.tree(selected.id, selectedDate);
 		} finally {
 			loadingTree = false;
 		}

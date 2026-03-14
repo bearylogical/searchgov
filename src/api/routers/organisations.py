@@ -1,10 +1,22 @@
+import re
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.dependencies import get_facade
 
 router = APIRouter()
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_date(value: str, param: str) -> str:
+    if not _DATE_RE.match(value):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{param} must be YYYY-MM-DD, got: {value!r}",
+        )
+    return value
 
 
 @router.get("/search", response_model=List[Dict[str, Any]])
@@ -29,6 +41,7 @@ async def get_org_tree(
     date: str = Query(..., description="Target date (YYYY-MM-DD)"),
     facade=Depends(get_facade),
 ):
+    _validate_date(date, "date")
     return await facade.get_active_descendants(org_id, date)
 
 
@@ -47,6 +60,8 @@ async def get_org_diff(
     end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
     facade=Depends(get_facade),
 ):
+    _validate_date(start_date, "start_date")
+    _validate_date(end_date, "end_date")
     return await facade.get_org_descendants_diff_between_dates(
         org_id, start_date, end_date
     )

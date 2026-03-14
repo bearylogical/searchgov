@@ -36,18 +36,20 @@ export interface EmploymentEntry {
 }
 
 export interface PersonResult {
-	person_id: number;
+	id: number;
 	name: string;
 	clean_name: string;
 	email: string | null;
 	tel: string | null;
+	employment_profile?: EmploymentEntry[];
 }
 
 export interface OrgResult {
-	org_id: number;
+	id: number;
 	name: string;
 	department: string | null;
 	url: string | null;
+	sim_score?: number;
 }
 
 export interface PathNode {

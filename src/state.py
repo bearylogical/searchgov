@@ -20,6 +20,25 @@ POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
 
 
+def _check_env() -> None:
+    """Fail fast if required environment variables are missing."""
+    missing = [
+        var
+        for var in (
+            "POSTGRES_HOST",
+            "POSTGRES_DB",
+            "POSTGRES_USER",
+            "POSTGRES_PASSWORD",
+        )
+        if not os.getenv(var)
+    ]
+    if missing:
+        raise EnvironmentError(
+            f"Missing required environment variables: {', '.join(missing)}. "
+            "Copy .env.example to .env and fill in the values."
+        )
+
+
 async def initialize_app_state():
     """
     Creates the single instance of our TemporalGraph facade.
@@ -27,11 +46,9 @@ async def initialize_app_state():
     """
     global graph_facade
     if graph_facade is None:
+        _check_env()
         logger.info("🚀 Initializing TemporalGraph facade...")
-        # You can pull DB credentials from environment variables or a config
-        # file here for better security and flexibility.
         try:
-            # Assuming TemporalGraph now uses AsyncDatabaseConnection internally
             graph_facade = TemporalGraph(
                 host=POSTGRES_HOST,
                 database=POSTGRES_DB,
@@ -39,7 +56,6 @@ async def initialize_app_state():
                 password=POSTGRES_PASSWORD,
                 port=POSTGRES_PORT,
             )
-            # The connection is now managed by the facade, which should connect its pool.
             await graph_facade.db_connection.connect()
             logger.info("✅ TemporalGraph facade initialized.")
         except Exception as e:
