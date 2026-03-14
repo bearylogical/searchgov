@@ -12,3 +12,9 @@ archive/
 notebooks/
 models/
 scripts/
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/.svelte-kit/
+frontend/.env

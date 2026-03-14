@@ -7,7 +7,8 @@ requires-python = ">=3.11.5,<3.12"
 readme = "README.md"
 license = "MIT"
 dependencies = [
-    "starlite>=1.51.16,<2",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
     "rapidfuzz>=3.9.4,<4",
     "pandas>=2.2.2,<3",
     "faiss-cpu>=1.9.0,<2",
@@ -31,8 +32,10 @@ dependencies = [
     "websockets>=15.0.1,<16",
     "python-lsp-ruff>=2.2.2,<3",
     "supabase>=2.13.0",
-    "pydantic>=1.10.22",
+    "pydantic>=1.10.22,<2",
     "asyncpg>=0.30.0",
+    "fastparquet>=2024.11.0",
+    "pyarrow>=21.0.0",
 ]
 
 [dependency-groups]
