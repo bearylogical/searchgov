@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+notebooks/
+scripts/
+
+# Frontend build artifacts and deps (built inside Docker)
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+
+# Dev/CI
+.env*
+!.env.example
+.git/
+.gitignore
+.DS_Store
+*.log
+dag.png
+
+# Docs
+*.md

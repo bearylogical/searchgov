@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict
 from src.database.postgres.connection import (
     AsyncDatabaseConnection as DatabaseConnection,
 )

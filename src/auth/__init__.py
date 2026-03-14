@@ -5,7 +5,7 @@ from supabase import create_client, Client, AuthApiError
 import os
 
 # from gotrue.types import Session
-from gotrue import User, Session
+from gotrue import Session
 from dotenv import load_dotenv
 from loguru import logger
 from nicegui import app, helpers, ui
@@ -21,8 +21,49 @@ try:
 except Exception as ex:
     print(f"Supabase client error: {ex}")
 
+@ui.page('/login')
+def login(redirect_to: str = '/') -> ui.element:
 
-def login_form() -> ui.element:
+    def handle_login(email: str, password: str):
+        """Handle login with Supabase."""
+        try:
+            result = supabase.auth.sign_in_with_password(
+                {
+                    "email": email,
+                    "password": password,
+                    # "options": {
+                    #     "emailRedirectTo": f"{SUPABASE_URL}/auth/callback"
+                    # },
+                },
+            )
+            user = result.user
+            session = result.session
+            if user and session:
+                app.storage.user.update(
+                    {
+                        "supabase": {
+                            "user": user.dict(),
+                            "session": session.dict(),
+                            "created_at": time.time(),
+                        },
+                        "is_authenticated": True,
+                    }
+                )
+                ui.notify("Login successful!", type="positive")
+                ui.navigate.to(redirect_to)
+            else:
+                ui.notify("Login failed", type="negative")
+        except AuthApiError as e:
+            logger.error(f"Supabase login error: {e}")
+            # Handle specific Supabase authentication errors
+            if "seconds" in str(e):
+                ui.notify(
+                    "Login failed: Too many attempts, try again later",
+                    type="negative",
+                )
+            else:
+                ui.notify("Login failed", type="negative")
+
     with theme.frame("Login"):
         """Create and return the Supabase login form."""
         # Center the form both vertically and horizontally using a full-screen row
@@ -40,54 +81,14 @@ def login_form() -> ui.element:
                     password=True,
                     password_toggle_button=True,
                 ).classes("w-64")
-                login_btn = ui.button(
+                ui.button(
                     "Login",
                     on_click=lambda: handle_login(
                         email.value, password.value
                     ),
                 ).classes("mt-8")
-                return login_btn
+                return None
 
-
-def handle_login(email: str, password: str):
-    """Handle login with Supabase."""
-    try:
-        result = supabase.auth.sign_in_with_password(
-            {
-                "email": email,
-                "password": password,
-                # "options": {
-                #     "emailRedirectTo": f"{SUPABASE_URL}/auth/callback"
-                # },
-            },
-        )
-        user = result.user
-        session = result.session
-        if user and session:
-            app.storage.user.update(
-                {
-                    "supabase": {
-                        "user": user.dict(),
-                        "session": session.dict(),
-                        "created_at": time.time(),
-                    },
-                    "is_authenticated": True,
-                }
-            )
-            ui.notify("Login successful!", type="positive")
-            ui.navigate.to("/")
-        else:
-            ui.notify("Login failed", type="negative")
-    except AuthApiError as e:
-        logger.error(f"Supabase login error: {e}")
-        # Handle specific Supabase authentication errors
-        if "seconds" in str(e):
-            ui.notify(
-                "Login failed: Too many attempts, try again later",
-                type="negative",
-            )
-        else:
-            ui.notify("Login failed", type="negative")
 
 
 def about() -> Dict[str, Any]:
@@ -100,8 +101,8 @@ def handle_logout() -> None:
     logging.info("Logging out user...")
     try:
         supabase.auth.sign_out()
-        app.storage.user["supabase"] = None
-        app.storage.user["is_authenticated"] = False
+        app.storage.user.clear()  # Clear user data from storage
+
         ui.notify("Logged out", type="positive")
     except Exception as e:
         logger.error(f"Logout failed: {e}")
@@ -118,6 +119,10 @@ class page(ui.page):
     def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
         async def content():
             await ui.context.client.connected()
+            if os.getenv("DEV_MODE", "false").lower() == "true":
+                # Skip authentication in development mode
+                logger.info("Development mode is enabled. Skipping authentication.")
+                return await func()
             if await self._is_logged_in():
                 if self.path == self.LOGIN_PATH:
                     self._refresh()

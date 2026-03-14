@@ -1,11 +1,40 @@
-FROM python:3.12-slim-bookworm
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# ── Stage 1: Build SvelteKit frontend ───────────────────────────────────────
+FROM node:22-alpine AS frontend-builder
 
-# Copy the project into the image
-ADD . /app
+WORKDIR /build/frontend
 
-# Sync the project into a new environment, asserting the lockfile is up to date
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+
+# ── Stage 2: Python backend ──────────────────────────────────────────────────
+FROM python:3.11-slim AS backend
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 WORKDIR /app
-RUN uv sync --locked
 
-CMD [ "uv", "run", "main.py" ]
+# Copy dependency manifests first for better layer caching
+COPY pyproject.toml uv.lock ./
+
+# Install production dependencies only
+RUN uv sync --frozen --no-dev --no-editable
+
+# Copy application source
+COPY src/ src/
+COPY api_main.py ./
+
+# Copy compiled frontend assets (served statically by FastAPI)
+COPY --from=frontend-builder /build/frontend/build ./frontend/build
+
+# Run as non-root
+RUN addgroup --system app && adduser --system --ingroup app app
+USER app
+
+EXPOSE 8081
+
+CMD ["uv", "run", "uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8081"]

@@ -50,7 +50,6 @@ class QueryService:
            highly related to the best match from step 2.
         """
         pg_candidates_with_pg_score: List[Tuple[str, Optional[float]]] = []
-        pg_search_method_used = "None"
         # Fetch more from PG to give fuzzywuzzy a better pool
         sql_query_limit = max(
             limit_results * 5, 20
@@ -74,7 +73,6 @@ class QueryService:
                     pg_candidates_with_pg_score = [
                         (r["clean_name"], r["sim_score"]) for r in results
                     ]
-                    pg_search_method_used = "trigram"
                 else:
                     # Fallback to ILIKE if trigram returns nothing
                     self.logger.info(
@@ -88,7 +86,6 @@ class QueryService:
                     pg_candidates_with_pg_score = [
                         (r["clean_name"], None) for r in results
                     ]
-                    pg_search_method_used = "ILIKE"
         except Exception as e:
             if hasattr(e, "pgcode") and e.pgcode == "42883":
                 self.logger.warning(
@@ -104,7 +101,7 @@ class QueryService:
                         pg_candidates_with_pg_score = [
                             (r["clean_name"], None) for r in results
                         ]
-                        pg_search_method_used = "ILIKE"
+
                 except Exception as e_fallback:
                     self.logger.error(
                         f"Fallback ILIKE search failed for '{name_query}': {e_fallback}"

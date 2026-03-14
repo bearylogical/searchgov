@@ -2,13 +2,10 @@ import src.frontend.theme as theme
 import src.state as app_state
 from src.frontend.components.visualizations.org_charts import (
     create_radial_tree_chart,
-    generate_tree_data,
 )
 from nicegui import ui, html
 from loguru import logger
-import pyecharts.charts as echarts
 
-import json
 
 # Let's assume these are available for a standalone example
 # from unittest.mock import Mock

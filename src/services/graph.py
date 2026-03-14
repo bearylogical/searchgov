@@ -1,9 +1,8 @@
 import networkx as nx
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Union
 from src.services.query import QueryService
 from src.services.organisations import OrganisationService
 from loguru import logger
-from datetime import datetime
 from itertools import combinations
 from collections import defaultdict
 
@@ -498,3 +497,281 @@ class GraphService:
         except Exception as e:
             self.logger.error(f"Error calculating centrality: {e}")
             return {}
+
+    async def get_connected_entities(
+        self,
+        person_ids: Union[int, List[int]],
+        max_degree: int = 1,
+        include_organizations: bool = True,
+        include_people: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Extract names and organizations connected to a person within a specified
+        degree of connectivity.
+
+        Args:
+            person_ids: Single person ID or list of IDs (treated as same person)
+            max_degree: Maximum degree of separation (1 = direct connections only)
+            target_date: Optional date for snapshot-based analysis
+            include_organizations: Whether to include organizations in results
+            include_people: Whether to include people in results
+
+        Returns:
+            Dictionary containing connected entities organized by degree and type
+        """
+        try:
+            # Normalize input to list
+            person_ids_list = (
+                [person_ids] if isinstance(person_ids, int) else person_ids
+            )
+
+            # Use full history graph for comprehensive connectivity
+            G = await self.build_full_history_graph()
+
+            # Check which person nodes exist in the graph
+            person_nodes = [f"person_{pid}" for pid in person_ids_list]
+            valid_person_nodes = [
+                node for node in person_nodes if node in G
+            ]
+
+            if not valid_person_nodes:
+                self.logger.warning(
+                    f"None of the person IDs {person_ids_list} found in graph"
+                )
+                return {
+                    "error": f"None of the person IDs {person_ids_list} found"
+                }
+
+            # Get names for all valid person nodes (for display)
+            source_persons = []
+            for node in valid_person_nodes:
+                person_id_int = int(node.split("_")[1])
+                source_persons.append(
+                    {"id": person_id_int, "name": G.nodes[node]["name"]}
+                )
+
+            # Convert to undirected for connectivity analysis
+            undirected_G = G.to_undirected()
+
+            # Initialize result structure
+            result = {
+                "source_persons": source_persons,
+                "connections_by_degree": {},
+                "summary": {
+                    "total_people": 0,
+                    "total_organizations": 0,
+                    "max_degree_searched": max_degree,
+                    "source_person_count": len(valid_person_nodes),
+                },
+            }
+
+            # Track visited nodes to avoid duplicates (include all source persons)
+            visited = set(valid_person_nodes)
+            current_level = set(valid_person_nodes)
+
+            # BFS to find connections at each degree
+            for degree in range(1, max_degree + 1):
+                next_level = set()
+                degree_connections = {"people": [], "organizations": []}
+
+                # Find all neighbors of current level nodes
+                for node in current_level:
+                    for neighbor in undirected_G.neighbors(node):
+                        if neighbor not in visited:
+                            visited.add(neighbor)
+                            next_level.add(neighbor)
+
+                            # Get node information
+                            node_data = G.nodes[neighbor]
+                            node_type = node_data.get("type")
+
+                            if node_type == "person" and include_people:
+                                # Extract person ID from prefixed format
+                                person_id_int = int(neighbor.split("_")[1])
+                                degree_connections["people"].append(
+                                    {
+                                        "id": person_id_int,
+                                        "name": node_data["name"],
+                                    }
+                                )
+                            elif (
+                                node_type == "organization"
+                                and include_organizations
+                            ):
+                                # Extract org ID from prefixed format
+                                org_id_int = int(neighbor.split("_")[1])
+                                degree_connections["organizations"].append(
+                                    {
+                                        "id": org_id_int,
+                                        "name": node_data["name"],
+                                    }
+                                )
+
+                # Only add degree if there are connections
+                if (
+                    degree_connections["people"]
+                    or degree_connections["organizations"]
+                ):
+                    result["connections_by_degree"][degree] = (
+                        degree_connections
+                    )
+
+                # Update current level for next iteration
+                current_level = next_level
+
+                # Break if no more connections found
+                if not current_level:
+                    break
+
+            # Calculate summary statistics
+            for degree_data in result["connections_by_degree"].values():
+                result["summary"]["total_people"] += len(
+                    degree_data["people"]
+                )
+                result["summary"]["total_organizations"] += len(
+                    degree_data["organizations"]
+                )
+
+            self.logger.info(
+                f"Found {result['summary']['total_people']} people and "
+                f"{result['summary']['total_organizations']} organizations "
+                f"within {max_degree} degrees of person(s) {person_ids_list}"
+            )
+
+            return result
+
+        except Exception as e:
+            self.logger.error(
+                f"Error getting connected entities for person(s) {person_ids}: {e}"
+            )
+            raise
+
+    async def get_colleague_network(
+        self,
+        person_ids: Union[int, List[int]],
+        max_degree: int = 2,
+    ) -> Dict[str, Any]:
+        """
+        Get the colleague network for a person using the temporal colleague graph.
+        This shows only people who were actual colleagues (overlapping employment).
+
+        Args:
+            person_ids: Single person ID or list of IDs (treated as same person)
+            max_degree: Maximum degree of separation through colleague relationships
+
+        Returns:
+            Dictionary containing colleague network organized by degree
+        """
+        try:
+            # Normalize input to list
+            person_ids_list = (
+                [person_ids] if isinstance(person_ids, int) else person_ids
+            )
+
+            # Use the colleague-specific graph
+            colleague_G = await self._build_colleague_graph()
+
+            # Check which person nodes exist in the colleague graph
+            person_nodes = [f"person_{pid}" for pid in person_ids_list]
+            valid_person_nodes = [
+                node for node in person_nodes if node in colleague_G
+            ]
+
+            if not valid_person_nodes:
+                self.logger.warning(
+                    f"None of the person IDs {person_ids_list} found in colleague graph"
+                )
+                return {
+                    "error": f"None of the person IDs {person_ids_list} found in colleague network"
+                }
+
+            # Get names for all valid person nodes (for display)
+            source_persons = []
+            for node in valid_person_nodes:
+                person_id_int = int(node.split("_")[1])
+                source_persons.append(
+                    {
+                        "id": person_id_int,
+                        "name": colleague_G.nodes[node]["name"],
+                    }
+                )
+
+            # Initialize result structure
+            result = {
+                "source_persons": source_persons,
+                "colleagues_by_degree": {},
+                "summary": {
+                    "total_colleagues": 0,
+                    "max_degree_searched": max_degree,
+                    "source_person_count": len(valid_person_nodes),
+                },
+            }
+
+            # Track visited nodes and current level (include all source persons)
+            visited = set(valid_person_nodes)
+            current_level = set(valid_person_nodes)
+
+            # BFS through colleague network
+            for degree in range(1, max_degree + 1):
+                next_level = set()
+                degree_colleagues = []
+
+                for node in current_level:
+                    for neighbor in colleague_G.neighbors(node):
+                        if neighbor not in visited:
+                            visited.add(neighbor)
+                            next_level.add(neighbor)
+
+                            # Get colleague information
+                            colleague_id_int = int(neighbor.split("_")[1])
+                            colleague_name = colleague_G.nodes[neighbor][
+                                "name"
+                            ]
+
+                            # Get shared organizations with the connecting node
+                            edge_data = colleague_G.edges[node, neighbor]
+                            shared_orgs = edge_data.get("orgs", [])
+
+                            # Determine connection path
+                            connection_through = "direct"
+                            if node not in valid_person_nodes:
+                                # This neighbor is connected through an intermediate person
+                                connection_through = int(node.split("_")[1])
+
+                            degree_colleagues.append(
+                                {
+                                    "id": colleague_id_int,
+                                    "name": colleague_name,
+                                    "shared_organizations": shared_orgs,
+                                    "connection_through": connection_through,
+                                }
+                            )
+
+                # Add degree data if colleagues found
+                if degree_colleagues:
+                    result["colleagues_by_degree"][degree] = (
+                        degree_colleagues
+                    )
+                    result["summary"]["total_colleagues"] += len(
+                        degree_colleagues
+                    )
+
+                # Update for next iteration
+                current_level = next_level
+
+                # Break if no more connections
+                if not current_level:
+                    break
+
+            self.logger.info(
+                f"Found {result['summary']['total_colleagues']} colleagues "
+                f"within {max_degree} degrees of person(s) {person_ids_list}"
+            )
+
+            return result
+
+        except Exception as e:
+            self.logger.error(
+                f"Error getting colleague network for person(s) {person_ids}: {e}"
+            )
+            raise

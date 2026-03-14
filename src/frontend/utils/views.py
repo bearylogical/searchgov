@@ -3,8 +3,7 @@ from pathlib import Path
 from typing import Callable
 
 from nicegui import ui
-from src.auth import page as auth_page
-import src.auth as auth
+# from src.auth import page as auth_page
 from loguru import logger
 
 # Import our new registry
@@ -17,9 +16,9 @@ def exclude_from_scan(func: Callable) -> Callable:
     return func
 
 
-@auth.login_page
-def login():
-    auth.login_form().on("success", lambda: ui.navigate.to("/"))
+# @auth.login_page
+# def login():
+#     auth.login_form().on("success", lambda: ui.navigate.to("/"))
 
 
 def register_views(
@@ -68,7 +67,7 @@ def register_views(
             PAGES.append({"name": nice_name, "path": url_path})
 
             # Register the page with NiceGUI
-            auth_page(url_path)(content_function)
+            ui.page(url_path)(content_function)
             logger.info(f"✅ Registered '{nice_name}' at path '{url_path}'")
 
         except ImportError as e:

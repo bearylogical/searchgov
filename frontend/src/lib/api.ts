@@ -28,11 +28,20 @@ async function apiFetch<T>(
 // Type stubs — extend as schemas grow
 // ---------------------------------------------------------------------------
 export interface EmploymentEntry {
-	org_name: string;
+	id?: number;
+	person_id?: number;
+	org_id?: number;
+	/** Name of the organisation — present on employment + career endpoints */
+	org_name?: string;
+	/** Alternate field name used by career-progression endpoint */
+	entity_name?: string;
+	person_name?: string;
 	rank: string | null;
 	start_date: string | null;
 	end_date: string | null;
 	tenure_days: number | null;
+	raw_name?: string;
+	metadata?: Record<string, unknown>;
 }
 
 export interface PersonResult {
@@ -42,6 +51,7 @@ export interface PersonResult {
 	email: string | null;
 	tel: string | null;
 	employment_profile?: EmploymentEntry[];
+	sim_score?: number;
 }
 
 export interface OrgResult {
@@ -49,7 +59,9 @@ export interface OrgResult {
 	name: string;
 	department: string | null;
 	url: string | null;
+	parent_org_id?: number | null;
 	sim_score?: number;
+	metadata?: Record<string, unknown>;
 }
 
 export interface PathNode {

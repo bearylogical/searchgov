@@ -4,7 +4,6 @@
 	import { isAuthenticated } from '$lib/auth';
 	import { goto } from '$app/navigation';
 
-	// Reactive guard — runs on mount and whenever auth state changes.
 	$effect(() => {
 		if (!$isAuthenticated) goto('/login?redirect=/progression');
 	});
@@ -21,10 +20,9 @@
 
 	function onQueryInput() {
 		clearTimeout(searchTimeout);
-		if (!query.trim()) {
-			results = [];
-			return;
-		}
+		selected = null;
+		career = [];
+		if (!query.trim()) { results = []; return; }
 		searchTimeout = setTimeout(runSearch, 300);
 	}
 
@@ -35,6 +33,7 @@
 			results = await people.search(query);
 		} catch (err: unknown) {
 			searchError = err instanceof Error ? err.message : 'Search failed';
+			results = [];
 		} finally {
 			searching = false;
 		}
@@ -45,106 +44,205 @@
 		career = [];
 		loadingCareer = true;
 		try {
-			career = await people.career(person.id);
+			career = await people.employment(person.id);
 		} finally {
 			loadingCareer = false;
 		}
 	}
 
 	function formatDate(d: string | null) {
-		if (!d) return '—';
-		return new Date(d).toLocaleDateString('en-SG', {
-			year: 'numeric',
-			month: 'short'
-		});
+		if (!d) return 'Present';
+		return new Date(d).toLocaleDateString('en-SG', { year: 'numeric', month: 'short' });
+	}
+
+	function formatDuration(days: number | null) {
+		if (!days) return null;
+		const months = Math.round(days / 30.44);
+		if (months < 12) return `${months}mo`;
+		const years = Math.floor(months / 12);
+		const rem = months % 12;
+		return rem > 0 ? `${years}y ${rem}mo` : `${years}y`;
+	}
+
+	function orgLabel(e: EmploymentEntry) {
+		return e.org_name ?? e.entity_name ?? 'Unknown organisation';
+	}
+
+	function isActive(e: EmploymentEntry) {
+		return !e.end_date;
 	}
 </script>
 
-<h1 class="text-2xl font-bold text-gray-900 mb-6">Career Progression</h1>
-
-<!-- Search -->
-<div class="flex gap-2 mb-4">
-	<input
-		type="text"
-		placeholder="Search by name…"
-		bind:value={query}
-		oninput={onQueryInput}
-		class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm
-			focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-	/>
-	{#if searching}
-		<span class="text-sm text-gray-400 self-center">Searching…</span>
-	{/if}
-</div>
-
-{#if searchError}
-	<p class="text-sm text-red-600 mb-4">{searchError}</p>
-{/if}
-
-<!-- Results list -->
-{#if results.length > 0 && !selected}
-	<ul class="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100 mb-6 shadow-sm">
-		{#each results as person}
-			<li>
-				<button
-					class="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
-					onclick={() => selectPerson(person)}
+<div class="flex-1 flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem - 49px)">
+	<!-- ── Left panel: search + results ───────────────── -->
+	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 bg-white">
+		<!-- Search header -->
+		<div class="p-4 border-b border-gray-100">
+			<h1 class="text-sm font-semibold text-gray-900 mb-3">Career Progression</h1>
+			<div class="relative">
+				<svg
+					class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+					fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
 				>
-					<span class="font-medium text-gray-900 text-sm">{person.name}</span>
-					{#if person.email}
-						<span class="text-xs text-gray-400 ml-2">{person.email}</span>
-					{/if}
-				</button>
-			</li>
-		{/each}
-	</ul>
-{/if}
-
-<!-- Selected person + career timeline -->
-{#if selected}
-	<div class="mb-6">
-		<div class="flex items-center gap-3 mb-4">
-			<button
-				onclick={() => { selected = null; career = []; }}
-				class="text-sm text-blue-600 hover:text-blue-800"
-			>
-				← Back
-			</button>
-			<h2 class="font-semibold text-gray-900">{selected.name}</h2>
-			{#if selected.email}
-				<span class="text-sm text-gray-400">{selected.email}</span>
-			{/if}
+					<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
+				</svg>
+				<input
+					type="text"
+					placeholder="Search by name…"
+					bind:value={query}
+					oninput={onQueryInput}
+					class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm
+					       bg-white text-gray-900 placeholder-gray-400 transition-colors
+					       focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+				/>
+			</div>
 		</div>
 
-		{#if loadingCareer}
-			<p class="text-sm text-gray-400">Loading career history…</p>
-		{:else if career.length === 0}
-			<p class="text-sm text-gray-400">No career history found.</p>
-		{:else}
-			<div class="relative">
-				<!-- Timeline line -->
-				<div class="absolute left-3 top-0 bottom-0 w-px bg-gray-200"></div>
-
-				<ul class="space-y-4">
-					{#each career as entry}
-						<li class="pl-10 relative">
-							<div class="absolute left-1.5 top-1.5 w-3 h-3 rounded-full bg-blue-500 border-2 border-white shadow"></div>
-							<div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-								<p class="font-medium text-gray-900 text-sm">{entry.org_name}</p>
-								{#if entry.rank}
-									<p class="text-sm text-gray-600 mt-0.5">{entry.rank}</p>
-								{/if}
-								<p class="text-xs text-gray-400 mt-1">
-									{formatDate(entry.start_date)} – {formatDate(entry.end_date)}
-									{#if entry.tenure_days}
-										&nbsp;·&nbsp;{Math.round(entry.tenure_days / 30)} mo
+		<!-- Results -->
+		<div class="flex-1 overflow-y-auto">
+			{#if searching}
+				<div class="p-4 space-y-2">
+					{#each Array(4) as _}
+						<div class="h-14 bg-gray-100 rounded-lg animate-pulse"></div>
+					{/each}
+				</div>
+			{:else if searchError}
+				<div class="p-4">
+					<p class="text-sm text-red-600">{searchError}</p>
+				</div>
+			{:else if query && results.length === 0}
+				<div class="p-8 text-center">
+					<svg class="w-8 h-8 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75l-2.489-2.489m0 0a3.375 3.375 0 10-4.773-4.773 3.375 3.375 0 004.774 4.774zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+					</svg>
+					<p class="text-sm text-gray-400">No results for "{query}"</p>
+				</div>
+			{:else if !query}
+				<div class="p-8 text-center">
+					<svg class="w-8 h-8 text-gray-200 mx-auto mb-2" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+					</svg>
+					<p class="text-sm text-gray-400">Search for a person to begin</p>
+				</div>
+			{:else}
+				<ul>
+					{#each results as person}
+						<li>
+							<button
+								onclick={() => selectPerson(person)}
+								class="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center gap-3
+								       {selected?.id === person.id ? 'bg-blue-50 border-r-2 border-blue-500' : ''}"
+							>
+								<div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0 text-xs font-semibold text-gray-600">
+									{person.name.slice(0, 2).toUpperCase()}
+								</div>
+								<div class="min-w-0">
+									<p class="text-sm font-medium text-gray-900 truncate">{person.name}</p>
+									{#if person.email}
+										<p class="text-xs text-gray-400 truncate">{person.email}</p>
 									{/if}
-								</p>
-							</div>
+								</div>
+							</button>
 						</li>
 					{/each}
 				</ul>
+			{/if}
+		</div>
+	</aside>
+
+	<!-- ── Right panel: timeline ──────────────────────── -->
+	<section class="flex-1 overflow-y-auto bg-gray-50">
+		{#if !selected}
+			<div class="h-full flex items-center justify-center p-8">
+				<div class="text-center">
+					<svg class="w-12 h-12 text-gray-200 mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
+					</svg>
+					<p class="text-sm text-gray-400">Select a person to view their career history</p>
+				</div>
+			</div>
+		{:else}
+			<div class="max-w-2xl mx-auto p-6">
+				<!-- Profile card -->
+				<div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm mb-6 flex items-center gap-4">
+					<div class="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg shrink-0">
+						{selected.name.slice(0, 2).toUpperCase()}
+					</div>
+					<div class="min-w-0">
+						<h2 class="text-base font-semibold text-gray-900">{selected.name}</h2>
+						{#if selected.email}
+							<p class="text-sm text-gray-500 truncate">{selected.email}</p>
+						{/if}
+						{#if selected.tel}
+							<p class="text-xs text-gray-400">{selected.tel}</p>
+						{/if}
+					</div>
+					{#if !loadingCareer && career.length > 0}
+						<div class="ml-auto shrink-0 text-right">
+							<p class="text-lg font-bold text-gray-900">{career.length}</p>
+							<p class="text-xs text-gray-400">roles</p>
+						</div>
+					{/if}
+				</div>
+
+				<!-- Timeline -->
+				{#if loadingCareer}
+					<div class="space-y-3">
+						{#each Array(5) as _}
+							<div class="flex gap-4">
+								<div class="w-3 h-3 rounded-full bg-gray-200 mt-1.5 animate-pulse shrink-0"></div>
+								<div class="flex-1 h-20 bg-gray-100 rounded-lg animate-pulse"></div>
+							</div>
+						{/each}
+					</div>
+				{:else if career.length === 0}
+					<div class="text-center py-12">
+						<p class="text-sm text-gray-400">No employment records found.</p>
+					</div>
+				{:else}
+					<div class="relative">
+						<!-- Vertical line -->
+						<div class="absolute left-[5px] top-2 bottom-2 w-px bg-gray-200"></div>
+
+						<ul class="space-y-3">
+							{#each career as entry}
+								<li class="pl-7 relative">
+									<!-- Timeline dot -->
+									<div
+										class="absolute left-0 top-3.5 w-[11px] h-[11px] rounded-full border-2 border-white ring-1
+										       {isActive(entry) ? 'bg-blue-500 ring-blue-400' : 'bg-gray-300 ring-gray-200'}"
+									></div>
+
+									<div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+										<div class="flex items-start justify-between gap-2 flex-wrap">
+											<p class="text-sm font-semibold text-gray-900 leading-snug">{orgLabel(entry)}</p>
+											{#if isActive(entry)}
+												<span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5 shrink-0">
+													<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+													Active
+												</span>
+											{/if}
+										</div>
+										{#if entry.rank}
+											<p class="text-sm text-gray-600 mt-0.5">{entry.rank}</p>
+										{/if}
+										<div class="flex items-center gap-2 mt-2 flex-wrap">
+											<span class="text-xs text-gray-400">
+												{formatDate(entry.start_date)} → {formatDate(entry.end_date)}
+											</span>
+											{#if entry.tenure_days}
+												<span class="text-xs font-medium text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">
+													{formatDuration(entry.tenure_days)}
+												</span>
+											{/if}
+										</div>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
 			</div>
 		{/if}
-	</div>
-{/if}
+	</section>
+</div>

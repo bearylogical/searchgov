@@ -2,7 +2,6 @@ from typing import List, Dict, Any, Optional
 import pyecharts.options as opts
 from pyecharts.charts import Tree
 
-from loguru import logger
 
 
 def _build_tree_structure(

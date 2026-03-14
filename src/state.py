@@ -1,5 +1,4 @@
 from typing import Optional
-import logging
 from dotenv import load_dotenv
 from loguru import logger
 import os
