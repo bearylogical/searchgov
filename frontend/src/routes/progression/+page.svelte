@@ -155,6 +155,10 @@
 		return !e.end_date;
 	}
 
+	function isSamePerson(e: EmploymentEntry) {
+		return !selected || e.person_id == null || e.person_id === selected.id;
+	}
+
 	function latestOrg(person: PersonResult): string | null {
 		const profile = person.employment_profile;
 		if (!profile?.length) return null;
@@ -355,14 +359,24 @@
 								<div class="absolute left-[5px] top-2 bottom-2 w-px bg-gray-200 dark:bg-gray-700"></div>
 								<ul class="space-y-3">
 									{#each career as entry}
-										<li class="pl-7 relative group">
+										<li class="pl-7 relative group {!isSamePerson(entry) ? 'opacity-60' : ''}">
 											<div class="absolute left-0 top-3.5 w-[11px] h-[11px] rounded-full border-2 border-white dark:border-gray-950 ring-1
-											            {isActive(entry) ? 'bg-blue-500 ring-blue-400' : 'bg-gray-300 dark:bg-gray-600 ring-gray-200 dark:ring-gray-700'}">
+											            {isSamePerson(entry)
+											              ? (isActive(entry) ? 'bg-blue-500 ring-blue-400' : 'bg-gray-300 dark:bg-gray-600 ring-gray-200 dark:ring-gray-700')
+											              : 'bg-amber-400 ring-amber-300'}">
 											</div>
-											<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+											<div class="rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow
+											            {isSamePerson(entry)
+											              ? 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'
+											              : 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50'}">
 												<div class="flex items-start justify-between gap-2">
 													<p class="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{orgLabel(entry)}</p>
 													<div class="flex items-center gap-1.5 shrink-0">
+														{#if !isSamePerson(entry)}
+															<span class="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-full px-2 py-0.5">
+																Different person?
+															</span>
+														{/if}
 														{#if isActive(entry)}
 															<span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-full px-2 py-0.5">
 																<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
@@ -385,11 +399,6 @@
 												</div>
 												{#if entry.rank}
 													<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">{entry.rank}</p>
-												{/if}
-												{#if entry.person_name}
-													<p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-														Identified as: <span class="font-medium">{entry.person_name}</span>
-													</p>
 												{/if}
 												<div class="flex items-center gap-2 mt-2 flex-wrap">
 													<span class="text-xs text-gray-400 dark:text-gray-500">

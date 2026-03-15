@@ -67,8 +67,13 @@ async def get_career_by_name(
     # Disable pairwise filter for interactive use — it requires min 3 strong
     # cross-links and can eliminate all candidates when there are 4+ variants
     # that aren't all mutually similar to each other.
+    # Disable clustering so entries from same-name different people are kept
+    # separate (frontend uses person_id to distinguish them).
     return await facade.get_career_progression_by_name(
-        name, is_fuzzy=fuzzy, enable_pairwise=False
+        name,
+        is_fuzzy=fuzzy,
+        enable_pairwise=False,
+        cluster_by_rank_and_entity=False,
     )
 
 

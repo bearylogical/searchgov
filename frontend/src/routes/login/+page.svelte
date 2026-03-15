@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { signIn } from '$lib/auth';
+	import { signIn, isAuthenticated, authReady } from '$lib/auth';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 
@@ -9,6 +9,11 @@
 	let loading = $state(false);
 
 	const redirectTo = page.url.searchParams.get('redirect') ?? '/';
+
+	// Redirect away if the user is already logged in
+	$effect(() => {
+		if ($authReady && $isAuthenticated) goto(redirectTo);
+	});
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();

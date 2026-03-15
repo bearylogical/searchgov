@@ -494,13 +494,17 @@ class QueryService:
                 fw_pairwise_similarity_threshold=fw_pairwise_check_threshold,
                 min_strong_pairwise_links=min_links_for_pairwise_check,
             )
-            if not similar_names:
-                return []
-            names_to_query = similar_names
-            self.logger.info(
-                f"Using names {names_to_query} (found via fuzzy search for '{person_name}') "
-                "for get_career_progression."
-            )
+            if similar_names:
+                names_to_query = similar_names
+                self.logger.info(
+                    f"Using names {names_to_query} (found via fuzzy "
+                    f"search for '{person_name}') for get_career_progression."
+                )
+            else:
+                self.logger.warning(
+                    f"Fuzzy search found no candidates for '{person_name}'."
+                    " Falling back to exact name match."
+                )
 
         all_progressions: List[Dict] = []
         try:
