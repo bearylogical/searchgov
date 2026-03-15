@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { organisations } from '$lib/api';
 	import type { OrgResult } from '$lib/api';
 	import { isAuthenticated, authReady } from '$lib/auth';
@@ -24,7 +24,7 @@
 	let loadingRoots = $state(true);
 	let searchError = $state('');
 	let vizTruncated = $state(false);
-	let vizEl = $state<HTMLDivElement | undefined>();
+	let vizEl = $state<HTMLDivElement | undefined>(); // $state for bind:this; tick() handles timing
 
 	let debounceTimer: ReturnType<typeof setTimeout>;
 	let sliderTimer: ReturnType<typeof setTimeout>;
@@ -141,16 +141,16 @@
 	type TN = { id: string; pid: string | null; name: string };
 
 	$effect(() => {
-		// Track reactive dependencies
-		const _sel = selected;
-		const _tree = tree;
-		const _loading = loadingTree;
-		const _el = vizEl;
-		if (!_el || !_sel || _loading || !_tree.length) {
-			if (_el) _el.innerHTML = '';
-			return;
-		}
-		vizTruncated = renderTree(_el, _sel, _tree);
+		// Capture reactive values synchronously so the async callback stays consistent
+		const sel = selected;
+		const currentTree = tree;
+		const loading = loadingTree;
+		if (!sel || loading || !currentTree.length) return;
+		// tick() waits for Svelte to finish DOM updates (including bind:this on vizEl)
+		tick().then(() => {
+			if (!vizEl) return;
+			vizTruncated = renderTree(vizEl, sel, currentTree);
+		});
 	});
 
 	function renderTree(container: HTMLDivElement, root: OrgResult, desc: OrgResult[]): boolean {
