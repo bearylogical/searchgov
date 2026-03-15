@@ -19,6 +19,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Disable uv cache — the non-root runtime user has no writable home dir
 ENV UV_NO_CACHE=1
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Copy dependency manifests first for better layer caching
