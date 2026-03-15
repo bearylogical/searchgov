@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount } from 'svelte';
 	import { organisations } from '$lib/api';
 	import type { OrgResult } from '$lib/api';
 	import { isAuthenticated, authReady } from '$lib/auth';
@@ -173,16 +173,13 @@
 	type TN = { id: string; pid: string | null; name: string };
 
 	$effect(() => {
-		// Capture reactive values synchronously so the async callback stays consistent
+		// Explicitly track vizEl so the effect re-runs when bind:this assigns it
+		const el = vizEl;
 		const sel = selected;
 		const currentTree = tree;
 		const loading = loadingTree;
-		if (!sel || loading || !currentTree.length) return;
-		// tick() waits for Svelte to finish DOM updates (including bind:this on vizEl)
-		tick().then(() => {
-			if (!vizEl) return;
-			vizTruncated = renderTree(vizEl, sel, currentTree);
-		});
+		if (!el || !sel || loading || !currentTree.length) return;
+		vizTruncated = renderTree(el, sel, currentTree);
 	});
 
 	function renderTree(container: HTMLDivElement, root: OrgResult, desc: OrgResult[]): boolean {
@@ -314,9 +311,21 @@
 			});
 		});
 
-		// Center the radial in the viewport
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		(svg as any).call(zoom.transform, d3.zoomIdentity.translate(W / 2, H / 2));
+		// Fit radial layout to viewport (rAF ensures getBBox has valid geometry)
+		requestAnimationFrame(() => {
+			const bb = (g.node() as SVGGElement)?.getBBox();
+			if (!bb?.width && !bb?.height) return;
+			const pad = 40;
+			const sc = Math.min(
+				bb.width ? (W - pad) / bb.width : 1,
+				bb.height ? (H - pad) / bb.height : 1,
+				1
+			);
+			const tx = W / 2 - (bb.x + bb.width / 2) * sc;
+			const ty = H / 2 - (bb.y + bb.height / 2) * sc;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(svg as any).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(sc));
+		});
 
 		return truncated;
 	}
@@ -694,40 +703,7 @@
 					</div>
 				{/if}
 
-				<!-- Sub-org list -->
-				{#if !loadingTree && tree.length > 0}
-					<div>
-						<h3
-							class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 px-1 mb-2"
-						>
-							All Sub-agencies ({tree.length.toLocaleString()})
-						</h3>
-						<ul class="space-y-1.5">
-							{#each tree as child (child.id)}
-								<li
-									class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg
-									       px-4 py-3 shadow-sm flex items-center gap-3 hover:shadow-md transition-shadow"
-								>
-									<div
-										class="w-1 h-6 rounded-full bg-violet-200 dark:bg-violet-800 shrink-0"
-									></div>
-									<div class="min-w-0 flex-1">
-										<p
-											class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate"
-										>
-											{child.name}
-										</p>
-										{#if child.department}
-											<p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">
-												{child.department}
-											</p>
-										{/if}
-									</div>
-								</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
+
 			</div>
 		{/if}
 	</section>
