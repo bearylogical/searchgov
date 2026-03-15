@@ -534,38 +534,47 @@
 			.attr('stroke-width', 1.5)
 			.attr('filter',       'url(#node-shadow)');
 
-		// Label inside org shape: agency name (or ministry name if it is one)
+		// ── Label inside org shape — short identifier ─────────
 		orgNodes.append('text')
 			.attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
 			.attr('fill', 'white').attr('font-size', '9px').attr('font-weight', '600')
 			.attr('pointer-events', 'none')
-			.text(d => truncate(d.agencyName ?? d.ministry ?? d.name, 11));
+			.text(d => truncate(d.agencyName ?? d.ministry ?? d.name, 13));
 
 		// ── Name labels below nodes ─────────────────────────
-		// For agency nodes: show ministry above the shape label
-		orgNodes.filter(d => !!d.agencyName && !!d.ministry)
-			.append('text')
+		// Person nodes: single line (name only)
+		personNodes.append('text')
 			.attr('text-anchor', 'middle')
-			.attr('y', -30)
-			.attr('fill', d => getMinistryColor(d.ministry!))
-			.attr('font-size', '9px').attr('font-weight', '600')
-			.attr('pointer-events', 'none')
-			.text(d => truncate(d.ministry!, 16));
-
-		// Full name below all nodes
-		node.append('text')
-			.attr('text-anchor', 'middle')
-			.attr('y', d => d.type === 'person' ? nodeRadius(d) + 17 : (d.isMinistry ? 32 : 28))
+			.attr('y', d => nodeRadius(d) + 17)
 			.attr('fill', '#1f2937').attr('font-size', '12px')
 			.attr('font-weight', d => (d.isSource || d.isTarget) ? '700' : '500')
 			.attr('pointer-events', 'none')
-			.text(d => truncate(d.agencyName ?? d.name, d.type === 'org' ? 18 : 22));
+			.text(d => truncate(d.name, 24));
+
+		// Org nodes: 2-line (org name + ministry in smaller text for agencies)
+		orgNodes.each(function(d) {
+			const yBase = d.isMinistry ? 32 : 28;
+			const text = d3.select<SVGGElement, GNode>(this).append('text')
+				.attr('text-anchor', 'middle')
+				.attr('pointer-events', 'none');
+			text.append('tspan')
+				.attr('x', 0).attr('y', yBase)
+				.attr('fill', '#1f2937').attr('font-size', '11px').attr('font-weight', '500')
+				.text(truncate(d.agencyName ?? d.name, 22));
+			if (d.agencyName && d.ministry) {
+				text.append('tspan')
+					.attr('x', 0).attr('dy', '1.25em')
+					.attr('fill', getMinistryColor(d.ministry))
+					.attr('font-size', '9px')
+					.text(truncate(d.ministry, 22));
+			}
+		});
 
 		// Source / Target label
 		personNodes.filter(d => d.isSource || d.isTarget)
 			.append('text')
 			.attr('text-anchor', 'middle')
-			.attr('y', d => nodeRadius(d) + 32)
+			.attr('y', d => nodeRadius(d) + 34)
 			.attr('fill', d => d.isSource ? '#2563eb' : '#059669')
 			.attr('font-size', '11px').attr('font-weight', '700').attr('letter-spacing', '0.3px')
 			.attr('pointer-events', 'none')
@@ -643,6 +652,45 @@
 		ministries: new Set(graphNodes.filter(n => n.inPath && n.ministry).map(n => n.ministry)).size,
 		agencies:   graphNodes.filter(n => n.inPath && n.type === 'org').length
 	});
+
+	const overlapTimeline = $derived((() => {
+		const pathEdges = graphEdges.filter(e => e.inPath && e.yearLabel);
+		if (!pathEdges.length) return null;
+		const years: number[] = [];
+		for (const e of pathEdges) {
+			const parts = e.yearLabel!.split('–');
+			const start = parseInt(parts[0]);
+			if (!isNaN(start)) years.push(start);
+			if (parts[1] && parts[1] !== 'now') {
+				const end = parseInt(parts[1]);
+				if (!isNaN(end)) years.push(end);
+			}
+		}
+		if (!years.length) return null;
+		const min = Math.min(...years);
+		const max = Math.max(...years);
+		return min === max ? String(min) : `${min}–${max}`;
+	})());
+
+	function collapseExpanded() {
+		graphNodes = graphNodes.filter(n => n.inPath).map(n => ({ ...n, expanded: false }));
+		graphEdges = graphEdges.filter(e => e.inPath);
+	}
+
+	let expandingAll = $state(false);
+	async function expandAllNodes() {
+		if (expandingAll) return;
+		expandingAll = true;
+		try {
+			const toExpand = graphNodes.filter(n => n.inPath && n.type === 'person' && !n.expanded);
+			await Promise.all(toExpand.map(n => expandNode(n)));
+		} finally { expandingAll = false; }
+	}
+
+	function resetGraph() {
+		pathResult = null; pathError = ''; graphNodes = []; graphEdges = [];
+		nodePositions.clear(); edgeYearCache.clear();
+	}
 </script>
 
 <div class="flex-1 flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem - 49px)">
@@ -735,9 +783,9 @@
 	<!-- ── Right panel — D3 canvas ───────────────────────── -->
 	<section class="flex-1 relative flex flex-col bg-gray-50 dark:bg-gray-950 overflow-hidden">
 
-		<!-- Status + stats badges -->
+		<!-- Status / stat cards / toolbar -->
 		{#if pathResult || pathLoading || pathError}
-			<div class="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+			<div class="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 w-full max-w-xl px-3">
 				{#if pathLoading}
 					<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
 					            rounded-full px-4 py-1.5 shadow-md text-sm text-gray-500 animate-pulse">
@@ -754,30 +802,66 @@
 						No connection found — try disabling Temporal mode
 					</div>
 				{:else if pathResult}
-					<div class="bg-white dark:bg-gray-900 border border-indigo-200 dark:border-indigo-800
-					            rounded-full px-4 py-1.5 shadow-md flex items-center gap-2">
-						<span class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-						<span class="text-sm font-semibold text-indigo-700 dark:text-indigo-400">
-							{degreeBadge === 1 ? '1 degree' : `${degreeBadge} degrees`} of separation
-						</span>
-					</div>
-					<!-- Connection summary -->
-					{#if connectionStats.agencies > 0}
-						<div class="flex items-center gap-2">
-							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							            rounded-full px-3 py-1 shadow-sm flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
-								<span class="font-semibold text-gray-800 dark:text-gray-200">{connectionStats.agencies}</span>
-								{connectionStats.agencies === 1 ? 'agency' : 'agencies'}
-							</div>
-							{#if connectionStats.ministries > 0}
-								<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-								            rounded-full px-3 py-1 shadow-sm flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
-									<span class="font-semibold text-gray-800 dark:text-gray-200">{connectionStats.ministries}</span>
-									{connectionStats.ministries === 1 ? 'ministry' : 'ministries'}
-								</div>
-							{/if}
+					<!-- Stat cards row -->
+					<div class="flex gap-2 flex-wrap justify-center">
+						<div class="bg-white dark:bg-gray-900 border border-indigo-100 dark:border-indigo-900
+						            rounded-xl px-4 py-2 shadow-sm text-center min-w-[68px]">
+							<p class="text-xl font-bold text-indigo-600 dark:text-indigo-400 tabular-nums leading-tight">{degreeBadge}</p>
+							<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide leading-none">
+								{degreeBadge === 1 ? 'Degree' : 'Degrees'}
+							</p>
 						</div>
-					{/if}
+						{#if connectionStats.ministries > 0}
+							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
+							            rounded-xl px-4 py-2 shadow-sm text-center min-w-[68px]">
+								<p class="text-xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-tight">{connectionStats.ministries}</p>
+								<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide leading-none">
+									{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}
+								</p>
+							</div>
+						{/if}
+						{#if connectionStats.agencies > 0}
+							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
+							            rounded-xl px-4 py-2 shadow-sm text-center min-w-[68px]">
+								<p class="text-xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-tight">{connectionStats.agencies}</p>
+								<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide leading-none">
+									{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}
+								</p>
+							</div>
+						{/if}
+						{#if overlapTimeline}
+							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
+							            rounded-xl px-4 py-2 shadow-sm text-center min-w-[80px]">
+								<p class="text-xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-tight">{overlapTimeline}</p>
+								<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide leading-none">Timeline</p>
+							</div>
+						{/if}
+					</div>
+					<!-- Graph control buttons -->
+					<div class="flex gap-1.5 flex-wrap justify-center">
+						<button onclick={resetGraph}
+							class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg
+							       bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
+							       text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800
+							       shadow-sm transition-colors">
+							↺ Reset
+						</button>
+						<button onclick={expandAllNodes} disabled={expandingAll}
+							class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg
+							       bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
+							       text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800
+							       shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+							{expandingAll ? '⏳ Expanding…' : '⊕ Expand All'}
+						</button>
+						<button onclick={collapseExpanded}
+							disabled={!graphNodes.some(n => !n.inPath)}
+							class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg
+							       bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
+							       text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800
+							       shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+							⊖ Collapse
+						</button>
+					</div>
 				{/if}
 			</div>
 		{/if}
