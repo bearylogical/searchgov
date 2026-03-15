@@ -13,18 +13,13 @@
 	// ---------------------------------------------------------------------------
 	function tokenSetRatio(a: string, b: string): number {
 		const tokenise = (s: string) =>
-			s
-				.toLowerCase()
-				.replace(/[^a-z0-9\s]/g, '')
-				.split(/\s+/)
-				.filter(Boolean);
+			s.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean);
 		const setA = new Set(tokenise(a));
 		const setB = new Set(tokenise(b));
 		const inter = [...setA].filter(t => setB.has(t));
 		const onlyA = [...setA].filter(t => !setB.has(t));
 		const onlyB = [...setB].filter(t => !setA.has(t));
 		const sorted = (arr: string[]) => [...arr].sort().join(' ');
-		// three string comparisons, take the max
 		const s0 = sorted(inter);
 		const s1 = [s0, sorted(onlyA)].filter(Boolean).join(' ');
 		const s2 = [s0, sorted(onlyB)].filter(Boolean).join(' ');
@@ -33,15 +28,11 @@
 			if (!x || !y) return 0;
 			let matches = 0;
 			const shorter = x.length <= y.length ? x : y;
-			const longer = x.length <= y.length ? y : x;
+			const longer  = x.length <= y.length ? y : x;
 			const used = new Array(longer.length).fill(false);
 			for (let i = 0; i < shorter.length; i++) {
 				for (let j = 0; j < longer.length; j++) {
-					if (!used[j] && shorter[i] === longer[j]) {
-						matches++;
-						used[j] = true;
-						break;
-					}
+					if (!used[j] && shorter[i] === longer[j]) { matches++; used[j] = true; break; }
 				}
 			}
 			return Math.round((2 * matches / (shorter.length + longer.length)) * 100);
@@ -50,12 +41,9 @@
 	}
 
 	// ---------------------------------------------------------------------------
-	// Cluster search results by name similarity at a given threshold (0–100)
+	// Search clustering
 	// ---------------------------------------------------------------------------
-	interface Cluster {
-		primary: PersonResult;
-		members: PersonResult[];
-	}
+	interface Cluster { primary: PersonResult; members: PersonResult[]; }
 
 	function clusterResults(items: PersonResult[], threshold: number): Cluster[] {
 		const clusters: Cluster[] = [];
@@ -63,14 +51,10 @@
 			let placed = false;
 			for (const cluster of clusters) {
 				if (tokenSetRatio(item.name, cluster.primary.name) >= threshold) {
-					cluster.members.push(item);
-					placed = true;
-					break;
+					cluster.members.push(item); placed = true; break;
 				}
 			}
-			if (!placed) {
-				clusters.push({ primary: item, members: [item] });
-			}
+			if (!placed) clusters.push({ primary: item, members: [item] });
 		}
 		return clusters;
 	}
@@ -78,82 +62,67 @@
 	// ---------------------------------------------------------------------------
 	// State
 	// ---------------------------------------------------------------------------
-	let query = $state('');
-	let rawResults = $state<PersonResult[]>([]);       // unmodified API response
-	let clusters = $state<Cluster[]>([]);              // grouped for display
-	let selected = $state<PersonResult | null>(null);
+	let query           = $state('');
+	let rawResults      = $state<PersonResult[]>([]);
+	let clusters        = $state<Cluster[]>([]);
+	let selected        = $state<PersonResult | null>(null);
 
-	let originalCareer = $state<EmploymentEntry[]>([]);
-	let career = $state<EmploymentEntry[]>([]);
-	let nameVariants = $state<NameVariant[]>([]);
-	let activeNames = $state<Set<string>>(new Set());
+	let originalCareer  = $state<EmploymentEntry[]>([]);
+	let career          = $state<EmploymentEntry[]>([]);
+	let nameVariants    = $state<NameVariant[]>([]);
+	let activeNames     = $state<Set<string>>(new Set());
 
-	let searching = $state(false);
-	let loadingCareer = $state(false);
-	let searchError = $state('');
-	let careerError = $state('');
+	let searching       = $state(false);
+	let loadingCareer   = $state(false);
+	let searchError     = $state('');
+	let careerError     = $state('');
 
-	// Confidence settings — controls display indicators & search clustering only.
-	// The actual API fetch always uses a broad 0.5 threshold so all variants
-	// are always available; the slider just marks which are "low confidence".
+	// Confidence: controls the high/low boundary for display + search clustering.
+	// Fetch always uses a broad 0.5 threshold; slider only moves the dividing line.
 	let confidenceThreshold = $state(95);  // integer 0–100
+
+	// Drag-and-drop state
+	let draggingName  = $state<string | null>(null);
+	let draggingFrom  = $state<'in' | 'out' | null>(null);
+	let dragOverZone  = $state<'in' | 'out' | null>(null);
+	// Per-zone enter counters to avoid flickering on child transitions
+	let dEnterIn  = $state(0);
+	let dEnterOut = $state(0);
 
 	let searchTimeout: ReturnType<typeof setTimeout>;
 
 	// ---------------------------------------------------------------------------
-	// Derived: re-cluster whenever raw results or threshold changes
+	// Re-cluster search results whenever raw results or threshold changes
 	// ---------------------------------------------------------------------------
-	$effect(() => {
-		clusters = clusterResults(rawResults, confidenceThreshold);
-	});
+	$effect(() => { clusters = clusterResults(rawResults, confidenceThreshold); });
 
 	// ---------------------------------------------------------------------------
 	// Search
 	// ---------------------------------------------------------------------------
 	function onQueryInput() {
 		clearTimeout(searchTimeout);
-		selected = null;
-		career = [];
-		originalCareer = [];
-		nameVariants = [];
-		activeNames = new Set();
+		selected = null; career = []; originalCareer = []; nameVariants = []; activeNames = new Set();
 		if (!query.trim()) { rawResults = []; clusters = []; return; }
 		searchTimeout = setTimeout(runSearch, 300);
 	}
 
 	async function runSearch() {
-		searching = true;
-		searchError = '';
-		try {
-			rawResults = await people.search(query);
-		} catch (err: unknown) {
-			searchError = err instanceof Error ? err.message : 'Search failed';
-			rawResults = [];
-		} finally {
-			searching = false;
-		}
+		searching = true; searchError = '';
+		try { rawResults = await people.search(query); }
+		catch (err: unknown) { searchError = err instanceof Error ? err.message : 'Search failed'; rawResults = []; }
+		finally { searching = false; }
 	}
 
 	// ---------------------------------------------------------------------------
-	// Select person (from a cluster)
+	// Select person
 	// ---------------------------------------------------------------------------
 	async function selectPerson(person: PersonResult) {
-		selected = person;
-		career = [];
-		originalCareer = [];
-		nameVariants = [];
-		activeNames = new Set();
-		careerError = '';
-		loadingCareer = true;
-		try {
-			await loadCareerFor(person.name);
-		} finally {
-			loadingCareer = false;
-		}
+		selected = person; career = []; originalCareer = []; nameVariants = []; activeNames = new Set();
+		careerError = ''; loadingCareer = true;
+		try { await loadCareerFor(person.name); }
+		finally { loadingCareer = false; }
 	}
 
-	// Fixed broad fetch threshold — always pull all possible variants.
-	// The confidenceThreshold slider only controls visual indicators.
 	const BROAD_THRESHOLD = 0.5;
 
 	async function loadCareerFor(name: string) {
@@ -168,39 +137,54 @@
 			return a.start_date.localeCompare(b.start_date);
 		});
 		originalCareer = sorted;
-		career = sorted;
-		activeNames = new Set(variants.map(v => v.name));
+		// Default: only high-confidence variants are active
+		const highConf = new Set(variants.filter(v => v.score >= confidenceThreshold).map(v => v.name));
+		activeNames = highConf;
+		career = sorted.filter(e => !e.person_name || highConf.has(e.person_name));
 	}
 
 	// ---------------------------------------------------------------------------
-	// Name variant toggles
+	// Derived helpers
 	// ---------------------------------------------------------------------------
 	const allNames = $derived(nameVariants.map(v => v.name));
 
-	// Map from name → fuzzy score (0–100) for quick lookup in the template
-	const variantScoreMap = $derived(
-		new Map(nameVariants.map(v => [v.name, v.score]))
+	const variantScoreMap = $derived(new Map(nameVariants.map(v => [v.name, v.score])));
+
+	// Default active set for the current threshold (used by isDirty + reset)
+	const defaultActiveNames = $derived(
+		new Set(nameVariants.filter(v => v.score >= confidenceThreshold).map(v => v.name))
 	);
 
-	// An entry is "low confidence" when its person_name scored below the threshold
+	const expectedCareerLength = $derived(
+		originalCareer.filter(e => !e.person_name || activeNames.has(e.person_name)).length
+	);
+
+	const isDirty = $derived(
+		activeNames.size !== defaultActiveNames.size ||
+		[...activeNames].some(n => !defaultActiveNames.has(n)) ||
+		career.length < expectedCareerLength
+	);
+
 	function isLowConfidence(entry: EmploymentEntry): boolean {
 		if (!entry.person_name) return false;
 		const score = variantScoreMap.get(entry.person_name);
 		return score !== undefined && score < confidenceThreshold;
 	}
 
+	// Variants currently in / out of the timeline
+	const inTimeline  = $derived(nameVariants.filter(v =>  activeNames.has(v.name)));
+	const outTimeline = $derived(nameVariants.filter(v => !activeNames.has(v.name)));
+
+	// ---------------------------------------------------------------------------
+	// Toggle (move variant between in/out rows)
+	// ---------------------------------------------------------------------------
 	function toggleName(name: string) {
 		const next = new Set(activeNames);
-		if (next.has(name)) {
-			next.delete(name);
-		} else {
-			next.add(name);
-		}
+		if (next.has(name)) { next.delete(name); } else { next.add(name); }
 		activeNames = next;
+		// Re-filter career, preserving manual removals
 		const removedIds = new Set(
-			originalCareer
-				.filter(e => !career.some(c => c.id === e.id))
-				.map(e => e.id)
+			originalCareer.filter(e => !career.some(c => c.id === e.id)).map(e => e.id)
 		);
 		career = originalCareer.filter(
 			e => !removedIds.has(e.id) && (!e.person_name || next.has(e.person_name))
@@ -212,29 +196,63 @@
 	}
 
 	function reset() {
-		activeNames = new Set(nameVariants.map(v => v.name));
-		career = [...originalCareer];
+		activeNames = new Set(defaultActiveNames);
+		career = originalCareer.filter(e => !e.person_name || defaultActiveNames.has(e.person_name));
 	}
 
 	// ---------------------------------------------------------------------------
-	// Derived profile stats
+	// Drag-and-drop handlers
+	// ---------------------------------------------------------------------------
+	function startDrag(e: DragEvent, name: string, from: 'in' | 'out') {
+		draggingName = name; draggingFrom = from;
+		e.dataTransfer?.setData('text/plain', name);
+	}
+
+	function onDragEnd() {
+		draggingName = null; draggingFrom = null; dragOverZone = null;
+		dEnterIn = 0; dEnterOut = 0;
+	}
+
+	function onDragEnter(zone: 'in' | 'out') {
+		if (draggingFrom === zone) return;
+		if (zone === 'in')  { dEnterIn++;  dragOverZone = 'in'; }
+		else                { dEnterOut++; dragOverZone = 'out'; }
+	}
+
+	function onDragLeave(zone: 'in' | 'out') {
+		if (zone === 'in') {
+			dEnterIn = Math.max(0, dEnterIn - 1);
+			if (dEnterIn === 0 && dragOverZone === 'in') dragOverZone = null;
+		} else {
+			dEnterOut = Math.max(0, dEnterOut - 1);
+			if (dEnterOut === 0 && dragOverZone === 'out') dragOverZone = null;
+		}
+	}
+
+	function onDragOver(e: DragEvent, zone: 'in' | 'out') {
+		if (draggingFrom !== zone) e.preventDefault();
+	}
+
+	function onDrop(e: DragEvent, zone: 'in' | 'out') {
+		e.preventDefault();
+		dragOverZone = null; dEnterIn = 0; dEnterOut = 0;
+		if (draggingName && draggingFrom !== zone) toggleName(draggingName);
+		draggingName = null; draggingFrom = null;
+	}
+
+	// ---------------------------------------------------------------------------
+	// Profile stats
 	// ---------------------------------------------------------------------------
 	const employmentSpan = $derived(() => {
 		const starts = career.map(e => e.start_date).filter(Boolean) as string[];
-		const ends = career.map(e => e.end_date).filter(Boolean) as string[];
+		const ends   = career.map(e => e.end_date).filter(Boolean) as string[];
 		return {
 			from: starts.length ? formatDate(starts[0]) : null,
 			to: career.some(e => !e.end_date) ? 'Present' : (ends.length ? formatDate(ends[ends.length - 1]) : null)
 		};
 	});
 
-	const distinctOrgs = $derived(
-		[...new Set(career.map(e => orgLabel(e)))]
-	);
-
-	const isDirty = $derived(
-		career.length !== originalCareer.length || activeNames.size !== allNames.length
-	);
+	const distinctOrgs = $derived([...new Set(career.map(e => orgLabel(e)))]);
 
 	// ---------------------------------------------------------------------------
 	// Helpers
@@ -253,24 +271,15 @@
 		return rem > 0 ? `${years}y ${rem}mo` : `${years}y`;
 	}
 
-	function orgLabel(e: EmploymentEntry) {
-		return e.org_name ?? e.entity_name ?? 'Unknown organisation';
-	}
-
-	function isActive(e: EmploymentEntry) {
-		return !e.end_date;
-	}
-
-	function isSamePerson(e: EmploymentEntry) {
-		return !selected || e.person_id == null || e.person_id === selected.id;
-	}
+	function orgLabel(e: EmploymentEntry) { return e.org_name ?? e.entity_name ?? 'Unknown organisation'; }
+	function isActive(e: EmploymentEntry) { return !e.end_date; }
+	function isSamePerson(e: EmploymentEntry) { return !selected || e.person_id == null || e.person_id === selected.id; }
 
 	function latestOrg(person: PersonResult): string | null {
 		const profile = person.employment_profile;
 		if (!profile?.length) return null;
 		const sorted = [...profile].sort((a, b) => {
-			if (!a.start_date) return 1;
-			if (!b.start_date) return -1;
+			if (!a.start_date) return 1; if (!b.start_date) return -1;
 			return b.start_date.localeCompare(a.start_date);
 		});
 		return sorted[0].org_name ?? sorted[0].entity_name ?? null;
@@ -278,24 +287,20 @@
 </script>
 
 <div class="flex-1 flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem - 49px)">
-	<!-- ── Left panel: search + results ───────────────── -->
+	<!-- ── Left panel ─────────────────────────────────── -->
 	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
 		<div class="p-4 border-b border-gray-100 dark:border-gray-800 space-y-3">
 			<h1 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Career Progression</h1>
+
+			<!-- Search input -->
 			<div class="relative">
-				<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500 pointer-events-none"
-					fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+				<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
 				</svg>
-				<input
-					type="text"
-					placeholder="Search by name…"
-					bind:value={query}
-					oninput={onQueryInput}
+				<input type="text" placeholder="Search by name…" bind:value={query} oninput={onQueryInput}
 					class="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm
-					       bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500
-					       transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-				/>
+					       bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400
+					       focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"/>
 			</div>
 
 			<!-- Confidence control -->
@@ -308,20 +313,15 @@
 						{confidenceThreshold >= 95 ? 'Strict' : confidenceThreshold >= 80 ? 'Moderate' : confidenceThreshold >= 65 ? 'Relaxed' : 'Broad'}
 					</span>
 				</div>
-				<input
-					type="range"
-					min="40"
-					max="100"
-					step="5"
-					bind:value={confidenceThreshold}
-					class="w-full h-1.5 rounded-full accent-blue-600 cursor-pointer"
-				/>
+				<input type="range" min="40" max="100" step="5" bind:value={confidenceThreshold}
+					class="w-full h-1.5 rounded-full accent-blue-600 cursor-pointer"/>
 				<p class="text-xs text-gray-400 dark:text-gray-500 leading-snug">
-					Variants below this score are shown with a low-confidence indicator. Also controls search grouping.
+					Variants below this score land in "Not in timeline" by default. Also controls search grouping.
 				</p>
 			</div>
 		</div>
 
+		<!-- Search results -->
 		<div class="flex-1 overflow-y-auto">
 			{#if searching}
 				<div class="p-4 space-y-2">
@@ -336,24 +336,22 @@
 					<svg class="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75l-2.489-2.489m0 0a3.375 3.375 0 10-4.773-4.773 3.375 3.375 0 004.774 4.774zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
 					</svg>
-					<p class="text-sm text-gray-400 dark:text-gray-500">No results for "{query}"</p>
+					<p class="text-sm text-gray-400">No results for "{query}"</p>
 				</div>
 			{:else if !query}
 				<div class="p-8 text-center">
 					<svg class="w-8 h-8 text-gray-200 dark:text-gray-700 mx-auto mb-2" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
 					</svg>
-					<p class="text-sm text-gray-400 dark:text-gray-500">Search for a person to begin</p>
+					<p class="text-sm text-gray-400">Search for a person to begin</p>
 				</div>
 			{:else}
 				<ul>
 					{#each clusters as cluster}
 						<li>
-							<button
-								onclick={() => selectPerson(cluster.primary)}
+							<button onclick={() => selectPerson(cluster.primary)}
 								class="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
-								       {selected?.id === cluster.primary.id ? 'bg-blue-50 dark:bg-blue-950 border-r-2 border-blue-500' : ''}"
-							>
+								       {selected?.id === cluster.primary.id ? 'bg-blue-50 dark:bg-blue-950 border-r-2 border-blue-500' : ''}">
 								<div class="flex items-center gap-3">
 									<div class="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 text-xs font-semibold text-gray-600 dark:text-gray-300">
 										{cluster.primary.name.slice(0, 2).toUpperCase()}
@@ -368,9 +366,9 @@
 											{/if}
 										</div>
 										{#if latestOrg(cluster.primary)}
-											<p class="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">{latestOrg(cluster.primary)}</p>
+											<p class="text-xs text-gray-400 truncate mt-0.5">{latestOrg(cluster.primary)}</p>
 										{:else if cluster.primary.email}
-											<p class="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">{cluster.primary.email}</p>
+											<p class="text-xs text-gray-400 truncate mt-0.5">{cluster.primary.email}</p>
 										{/if}
 									</div>
 								</div>
@@ -390,7 +388,7 @@
 					<svg class="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
 					</svg>
-					<p class="text-sm text-gray-400 dark:text-gray-500">Select a person to view their career history</p>
+					<p class="text-sm text-gray-400">Select a person to view their career history</p>
 				</div>
 			</div>
 		{:else}
@@ -404,59 +402,111 @@
 						</div>
 						<div class="min-w-0 flex-1">
 							<h2 class="text-base font-semibold text-gray-900 dark:text-gray-100">{selected.name}</h2>
-							{#if selected.email}
-								<p class="text-sm text-gray-500 dark:text-gray-400 truncate">{selected.email}</p>
-							{/if}
-							{#if selected.tel}
-								<p class="text-xs text-gray-400 dark:text-gray-500">{selected.tel}</p>
-							{/if}
+							{#if selected.email}<p class="text-sm text-gray-500 truncate">{selected.email}</p>{/if}
+							{#if selected.tel}<p class="text-xs text-gray-400">{selected.tel}</p>{/if}
 						</div>
 						{#if !loadingCareer && career.length > 0}
 							<div class="shrink-0 text-right">
 								<p class="text-lg font-bold text-gray-900 dark:text-gray-100">{career.length}</p>
-								<p class="text-xs text-gray-400 dark:text-gray-500">
-									{career.length !== originalCareer.length ? `of ${originalCareer.length} ` : ''}roles
-								</p>
+								<p class="text-xs text-gray-400">{career.length !== originalCareer.length ? `of ${originalCareer.length} ` : ''}roles</p>
 							</div>
 						{/if}
 					</div>
 
-					<!-- Name variant toggles -->
+					<!-- ── Name variant two-zone drag-drop ── -->
 					{#if !loadingCareer && nameVariants.length > 0}
-						<div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-							<div class="flex items-center justify-between mb-2">
+						<div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
+							<div class="flex items-center justify-between">
 								<p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-									{nameVariants.length > 1 ? 'Name variants — click to include / exclude' : 'Matched name'}
+									Name variants — drag between zones to adjust timeline
 								</p>
 								{#if isDirty}
-									<button
-										onclick={reset}
-										class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-									>
+									<button onclick={reset} class="text-xs text-blue-600 dark:text-blue-400 hover:underline">
 										Reset
 									</button>
 								{/if}
 							</div>
-							<div class="flex flex-wrap gap-1.5">
-								{#each nameVariants as variant}
-									{@const lowConf = variant.score < confidenceThreshold}
-									{@const active = activeNames.has(variant.name)}
-									<button
-										onclick={() => toggleName(variant.name)}
-										title="Similarity score: {variant.score}%{lowConf ? ' — low confidence' : ''}"
-										class="text-xs px-2.5 py-1 rounded-full border transition-colors flex items-center gap-1.5
-										       {active && !lowConf
-										         ? 'bg-blue-600 text-white border-blue-600'
-										         : active && lowConf
-										           ? 'bg-amber-500 text-white border-amber-500'
-										           : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600 line-through opacity-50'}"
-									>
-										{variant.name}
-										<span class="font-mono tabular-nums {active ? (lowConf ? 'text-amber-200' : 'text-blue-200') : 'text-gray-400 dark:text-gray-500'}">
-											{variant.score}%
-										</span>
-									</button>
-								{/each}
+
+							<!-- Zone: In timeline -->
+							<div
+								role="region"
+								aria-label="In timeline drop zone"
+								ondragenter={() => onDragEnter('in')}
+								ondragleave={() => onDragLeave('in')}
+								ondragover={(e) => onDragOver(e, 'in')}
+								ondrop={(e) => onDrop(e, 'in')}
+								class="rounded-lg border-2 transition-colors p-2
+								       {dragOverZone === 'in'
+								         ? 'border-blue-400 bg-blue-50 dark:bg-blue-950/30'
+								         : 'border-dashed border-gray-200 dark:border-gray-700'}"
+							>
+								<p class="text-[10px] font-semibold uppercase tracking-wide text-blue-500 dark:text-blue-400 mb-1.5 select-none">
+									In timeline
+								</p>
+								<div class="flex flex-wrap gap-1.5 min-h-[28px]">
+									{#each inTimeline as variant}
+										{@const lowConf = variant.score < confidenceThreshold}
+										<button
+											draggable="true"
+											ondragstart={(e) => startDrag(e, variant.name, 'in')}
+											ondragend={onDragEnd}
+											onclick={() => toggleName(variant.name)}
+											title="Click or drag to remove from timeline — score {variant.score}%"
+											class="text-xs px-2.5 py-1 rounded-full border transition-all flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none
+											       {lowConf
+											         ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'
+											         : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}"
+										>
+											{variant.name}
+											<span class="font-mono tabular-nums {lowConf ? 'text-amber-200' : 'text-blue-200'}">
+												{variant.score}%
+											</span>
+										</button>
+									{/each}
+									{#if inTimeline.length === 0}
+										<p class="text-xs text-gray-400 dark:text-gray-500 italic py-0.5">Drop variants here to include them</p>
+									{/if}
+								</div>
+							</div>
+
+							<!-- Zone: Not in timeline -->
+							<div
+								role="region"
+								aria-label="Not in timeline drop zone"
+								ondragenter={() => onDragEnter('out')}
+								ondragleave={() => onDragLeave('out')}
+								ondragover={(e) => onDragOver(e, 'out')}
+								ondrop={(e) => onDrop(e, 'out')}
+								class="rounded-lg border-2 transition-colors p-2
+								       {dragOverZone === 'out'
+								         ? 'border-gray-400 bg-gray-100 dark:bg-gray-800'
+								         : 'border-dashed border-gray-200 dark:border-gray-700'}"
+							>
+								<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5 select-none">
+									Not in timeline
+								</p>
+								<div class="flex flex-wrap gap-1.5 min-h-[28px]">
+									{#each outTimeline as variant}
+										<button
+											draggable="true"
+											ondragstart={(e) => startDrag(e, variant.name, 'out')}
+											ondragend={onDragEnd}
+											onclick={() => toggleName(variant.name)}
+											title="Click or drag to add to timeline — score {variant.score}%"
+											class="text-xs px-2.5 py-1 rounded-full border transition-all flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none
+											       bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600
+											       hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400"
+										>
+											{variant.name}
+											<span class="font-mono tabular-nums text-gray-400 dark:text-gray-500">
+												{variant.score}%
+											</span>
+										</button>
+									{/each}
+									{#if outTimeline.length === 0}
+										<p class="text-xs text-gray-400 dark:text-gray-500 italic py-0.5">Drop variants here to exclude them</p>
+									{/if}
+								</div>
 							</div>
 						</div>
 					{/if}
@@ -476,21 +526,19 @@
 					</div>
 				{:else if careerError}
 					<div class="text-center py-12">
-						<p class="text-sm text-red-500 dark:text-red-400">{careerError}</p>
+						<p class="text-sm text-red-500">{careerError}</p>
 					</div>
 				{:else if career.length === 0}
 					<div class="text-center py-12">
-						<p class="text-sm text-gray-400 dark:text-gray-500 mb-3">No records match the current filters.</p>
+						<p class="text-sm text-gray-400 mb-3">No records match the current filters.</p>
 						{#if isDirty}
-							<button onclick={reset} class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
-								Reset filters
-							</button>
+							<button onclick={reset} class="text-sm text-blue-600 hover:underline">Reset filters</button>
 						{/if}
 					</div>
 				{:else}
 					<div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
 
-						<!-- ── Career Timeline ──────────────── -->
+						<!-- ── Career Timeline ──────────── -->
 						<div>
 							<h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
 								Career Timeline
@@ -513,33 +561,28 @@
 													<div class="min-w-0">
 														<p class="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{orgLabel(entry)}</p>
 														{#if entry.person_name && entry.person_name !== selected?.name}
-															<p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">as {entry.person_name}</p>
+															<p class="text-xs text-gray-400 mt-0.5 italic">as {entry.person_name}</p>
 														{/if}
 													</div>
-													<div class="flex items-center gap-1.5 shrink-0">
+													<div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
 														{#if !isSamePerson(entry)}
-															<span class="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-full px-2 py-0.5">
+															<span class="inline-flex items-center text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-full px-2 py-0.5">
 																Different person?
 															</span>
 														{/if}
 														{#if isLowConfidence(entry)}
-															<span class="inline-flex items-center gap-1 text-xs font-medium text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-full px-2 py-0.5">
+															<span class="inline-flex items-center text-xs font-medium text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-full px-2 py-0.5">
 																Low confidence
 															</span>
 														{/if}
 														{#if isActive(entry)}
 															<span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-full px-2 py-0.5">
-																<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-																Active
+																<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Active
 															</span>
 														{/if}
-														<button
-															onclick={() => removeEntry(entry)}
-															title="Remove this entry"
+														<button onclick={() => removeEntry(entry)} title="Remove this entry"
 															class="opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 flex items-center justify-center
-															       rounded-md text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400
-															       hover:bg-red-50 dark:hover:bg-red-950"
-														>
+															       rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950">
 															<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
 																<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
 															</svg>
@@ -550,7 +593,7 @@
 													<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">{entry.rank}</p>
 												{/if}
 												<div class="flex items-center gap-2 mt-2 flex-wrap">
-													<span class="text-xs text-gray-400 dark:text-gray-500">
+													<span class="text-xs text-gray-400">
 														{formatDate(entry.start_date)} → {formatDate(entry.end_date)}
 													</span>
 													{#if entry.tenure_days}
@@ -566,12 +609,11 @@
 							</div>
 						</div>
 
-						<!-- ── Individual Profile ───────────── -->
+						<!-- ── Individual Profile ─────────── -->
 						<div class="space-y-4">
 							<h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
 								Individual Profile
 							</h3>
-
 							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm space-y-3">
 								{#if employmentSpan().from}
 									<div>
@@ -582,12 +624,10 @@
 								<div>
 									<p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Roles shown</p>
 									<p class="text-sm text-gray-900 dark:text-gray-100">
-										{career.length} role{career.length !== 1 ? 's' : ''}
-										across {distinctOrgs.length} organisation{distinctOrgs.length !== 1 ? 's' : ''}
+										{career.length} role{career.length !== 1 ? 's' : ''} across {distinctOrgs.length} organisation{distinctOrgs.length !== 1 ? 's' : ''}
 									</p>
 								</div>
 							</div>
-
 							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
 								<p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-3">Organisations</p>
 								<ul class="space-y-2">
@@ -599,14 +639,11 @@
 									{/each}
 								</ul>
 							</div>
-
 							{#if isDirty}
-								<button
-									onclick={reset}
+								<button onclick={reset}
 									class="w-full py-2 text-sm font-medium text-gray-600 dark:text-gray-400
 									       border border-gray-200 dark:border-gray-700 rounded-xl
-									       hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-								>
+									       hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
 									Reset to full timeline
 								</button>
 							{/if}
