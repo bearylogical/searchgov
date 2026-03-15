@@ -9,8 +9,12 @@ router = APIRouter()
 
 @router.get("/path", response_model=Dict[str, Any])
 async def get_shortest_path(
-    from_id: int = Query(..., description="Source person ID"),
-    to_id: int = Query(..., description="Target person ID"),
+    from_id: List[int] = Query(
+        ..., description="Source person ID(s)"
+    ),
+    to_id: List[int] = Query(
+        ..., description="Target person ID(s)"
+    ),
     temporal: bool = Query(True, description="Use temporal graph"),
     facade=Depends(get_facade),
 ):
@@ -18,6 +22,16 @@ async def get_shortest_path(
         from_id, to_id, is_temporal=temporal
     )
     return {"nodes": nodes or [], "length": len(nodes) if nodes else 0}
+
+
+@router.get("/person/{person_id}/network", response_model=Dict[str, Any])
+async def get_person_network(
+    person_id: int,
+    degree: int = Query(1, ge=1, le=3, description="Degrees of separation"),
+    facade=Depends(get_facade),
+):
+    """Returns the colleague network for a person (for D3 node expansion)."""
+    return await facade.get_colleague_network(person_id, degree)
 
 
 @router.get("/network", response_model=List[Dict[str, Any]])

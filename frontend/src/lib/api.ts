@@ -82,8 +82,30 @@ export interface NameVariant {
 
 export interface PathNode {
 	node_id: string;
-	node_type: string;
+	node_type: 'person' | 'organization';
 	name: string;
+	person_id?: number;
+	org_id?: number;
+	employment_profile?: EmploymentEntry[];
+}
+
+export interface ColleagueEdge {
+	id: number;
+	name: string;
+	/** org_ids where they overlapped */
+	shared_organizations: number[];
+	/** "direct" or the intermediate person_id */
+	connection_through: 'direct' | number;
+}
+
+export interface ColleagueNetwork {
+	source_persons: { id: number; name: string }[];
+	colleagues_by_degree: Record<string, ColleagueEdge[]>;
+	summary: {
+		total_colleagues: number;
+		max_degree_searched: number;
+		source_person_count: number;
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -151,9 +173,17 @@ export const organisations = {
 // Graph
 // ---------------------------------------------------------------------------
 export const graph = {
-	path: (fromId: number, toId: number, temporal = false) =>
-		apiFetch<PathNode[]>(
-			`/graph/path?from_id=${fromId}&to_id=${toId}&temporal=${temporal}`
+	path: (fromIds: number[], toIds: number[], temporal = true) => {
+		const from = fromIds.map(id => `from_id=${id}`).join('&');
+		const to   = toIds.map(id => `to_id=${id}`).join('&');
+		return apiFetch<{ nodes: PathNode[]; length: number }>(
+			`/graph/path?${from}&${to}&temporal=${temporal}`
+		);
+	},
+
+	personNetwork: (personId: number, degree = 1) =>
+		apiFetch<ColleagueNetwork>(
+			`/graph/person/${personId}/network?degree=${degree}`
 		),
 
 	network: (date?: string) => {
