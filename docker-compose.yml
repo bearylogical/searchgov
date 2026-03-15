@@ -3,11 +3,19 @@ services:
     build: .
     ports:
       - "8081:8081"
-    env_file:
-      - .env
     environment:
       ENV: production
-      ALLOWED_ORIGINS: ""
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_KEY: ${SUPABASE_KEY}
+      REQUIRE_AUTH: ${REQUIRE_AUTH:-true}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      SESSION_SECRET: ${SESSION_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/system/health"]
