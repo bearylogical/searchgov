@@ -725,16 +725,20 @@
 	}
 </script>
 
-<div class="flex flex-col overflow-hidden" style="height: calc(100vh - 3.5rem)">
+<div class="flex flex-col" style="height: calc(100vh - 3.5rem)">
 
-	<!-- ── Row 1: Control bar ───────────────────────────── -->
-	<div class="flex-none bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-2.5">
+	<!-- ── Row 1: Title ─────────────────────────────────── -->
+	<div class="flex-none bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-5 py-3">
+		<div class="flex items-center gap-2">
+			<h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Connectivity Explorer</h1>
+			<InfoTip tip="Find the shortest connection path between two people through shared organisations. Click any person node to view their network stats." />
+		</div>
+	</div>
+
+	<!-- ── Row 2: Controls ───────────────────────────────── -->
+	<div class="flex-none bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-5 py-3">
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-			<div class="flex items-center gap-1.5 shrink-0">
-				<h1 class="text-base font-semibold text-gray-900 dark:text-gray-100">Connectivity Explorer</h1>
-				<InfoTip tip="Find the shortest connection path between two people through shared organisations. Click any person node to view their network stats." />
-			</div>
-			<div class="flex items-center gap-1 min-w-[160px] max-w-xs flex-1">
+			<div class="flex items-center gap-1.5 min-w-[160px] max-w-xs flex-1">
 				<ConfidenceSlider bind:value={confidenceThreshold} compact={true} />
 				<InfoTip tip="Variants below this score land in &quot;Not in timeline&quot; by default. Also controls search grouping." />
 			</div>
