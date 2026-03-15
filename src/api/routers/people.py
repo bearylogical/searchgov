@@ -64,8 +64,11 @@ async def get_career_by_name(
     ),
     facade=Depends(get_facade),
 ):
+    # Disable pairwise filter for interactive use — it requires min 3 strong
+    # cross-links and can eliminate all candidates when there are 4+ variants
+    # that aren't all mutually similar to each other.
     return await facade.get_career_progression_by_name(
-        name, is_fuzzy=fuzzy
+        name, is_fuzzy=fuzzy, enable_pairwise=False
     )
 
 

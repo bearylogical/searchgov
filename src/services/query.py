@@ -508,13 +508,15 @@ class QueryService:
                 results = await conn.fetch(
                     """
                     SELECT
+                        e.id,
                         p.name as person_name,
                         p.id as person_id,
                         e.rank,
                         o.name as entity_name,
                         o.id as org_id,
                         e.start_date,
-                        e.end_date
+                        e.end_date,
+                        e.tenure_days
                     FROM employment e
                     JOIN people p ON e.person_id = p.id
                     JOIN organizations o ON e.org_id = o.id
@@ -607,13 +609,15 @@ class QueryService:
                 results = await conn.fetch(
                     """
                     SELECT
+                        e.id,
                         p.name as person_name,
                         p.id as person_id,
                         e.rank,
                         o.name as entity_name,
                         o.id as org_id,
                         e.start_date,
-                        e.end_date
+                        e.end_date,
+                        e.tenure_days
                     FROM employment e
                     JOIN people p ON e.person_id = p.id
                     JOIN organizations o ON e.org_id = o.id
