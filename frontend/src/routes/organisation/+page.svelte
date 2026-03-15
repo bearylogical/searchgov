@@ -27,6 +27,7 @@
 	let loadingHeadcount = $state(false);
 	let vizTruncated = $state(false);
 	let vizEl = $state<HTMLDivElement | undefined>(); // $state for bind:this; tick() handles timing
+	let vizSearch = $state('');
 
 	let debounceTimer: ReturnType<typeof setTimeout>;
 	let sliderTimer: ReturnType<typeof setTimeout>;
@@ -70,6 +71,7 @@
 		selected = org;
 		tree = [];
 		timeline = [];
+		vizSearch = '';
 		selectedDate = '';
 		headcount = null;
 		loadingTree = true;
@@ -178,11 +180,13 @@
 		const sel = selected;
 		const currentTree = tree;
 		const loading = loadingTree;
+		const q = vizSearch; // track so search re-renders highlight without rebuilding data
 		if (!el || !sel || loading || !currentTree.length) return;
-		vizTruncated = renderTree(el, sel, currentTree);
+		vizTruncated = renderTree(el, sel, currentTree, q);
 	});
 
-	function renderTree(container: HTMLDivElement, root: OrgResult, desc: OrgResult[]): boolean {
+	function renderTree(container: HTMLDivElement, root: OrgResult, desc: OrgResult[], highlight = ''): boolean {
+		const q = highlight.trim().toLowerCase();
 		// Short display name: use rightmost segment after ":"
 		const shortName = (n: string) => n.split(':').pop()?.trim() ?? n;
 
@@ -272,6 +276,13 @@
 			.attr('stroke', '#e5e7eb')
 			.attr('stroke-width', 1)
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			.attr('opacity', (d: any) => {
+				if (!q) return 1;
+				const srcMatch = d.source.data.name.toLowerCase().includes(q);
+				const tgtMatch = d.target.data.name.toLowerCase().includes(q);
+				return srcMatch || tgtMatch ? 0.7 : 0.06;
+			})
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.attr('d', (d3.linkRadial() as any).angle((d: any) => d.x).radius((d: any) => d.y));
 
 		// Node groups — polar → cartesian via rotate+translate
@@ -290,22 +301,30 @@
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.attr('r', (d: any) => (d.depth === 0 ? 7 : d.depth === 1 ? 5 : 3))
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.attr('fill', (d: any) => palette[Math.min(d.depth, palette.length - 1)])
-			.attr('stroke', '#fff')
+			.attr('fill', (d: any) => {
+				if (q && d.data.name.toLowerCase().includes(q)) return '#f59e0b';
+				return palette[Math.min(d.depth, palette.length - 1)];
+			})
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			.attr('opacity', (d: any) => (!q || d.data.name.toLowerCase().includes(q) ? 1 : 0.15))
+			.attr('stroke', (d: any) => (q && d.data.name.toLowerCase().includes(q) ? '#d97706' : '#fff'))
 			.attr('stroke-width', 1.5);
 
 		nodeG.append('title').text((d) => d.data.name);
 
-		// Word-wrapped labels
+		// Labels: root + depth-1 only (depth-2 nodes are dot-only with a hover tooltip)
 		nodeG.each(function (d: any) {
+			if (d.depth >= 2) return; // depth-2: tooltip only, skip text to avoid clutter
 			const grp = d3.select(this);
 			const label = d.depth === 0 ? d.data.name : shortName(d.data.name);
-			const lines = wrapLines(label, d.depth === 0 ? 25 : 15);
+			const maxChars = d.depth === 0 ? 22 : 14;
+			const lines = wrapLines(label, maxChars);
 			const isLeft = d.x > Math.PI;
 			const isRoot = d.depth === 0;
 			const anchor = isRoot ? 'middle' : isLeft ? 'end' : 'start';
 			const xOff = isRoot ? 0 : isLeft ? -10 : 10;
 			const totalLines = lines.length;
+			const matches = !q || d.data.name.toLowerCase().includes(q);
 
 			const text = grp
 				.append('text')
@@ -313,7 +332,9 @@
 				.attr('transform', !isRoot && isLeft ? 'rotate(180)' : (null as any))
 				.attr('text-anchor', anchor)
 				.attr('font-size', isRoot ? 11 : 9)
-				.attr('fill', '#374151');
+				.attr('fill', q && matches ? '#92400e' : '#374151')
+				.attr('font-weight', q && matches ? '600' : 'normal')
+				.attr('opacity', matches ? 1 : 0.2);
 
 			lines.forEach((line, i) => {
 				text.append('tspan')
@@ -627,21 +648,47 @@
 					class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden"
 				>
 					<div
-						class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between"
+						class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-3"
 					>
-						<div class="flex items-center gap-2">
-							<h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">Hierarchy Map</h3>
-							<span class="text-xs text-gray-400 dark:text-gray-500"
+						<div class="flex items-center gap-2 min-w-0">
+							<h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 shrink-0">Hierarchy Map</h3>
+							<span class="text-xs text-gray-400 dark:text-gray-500 hidden sm:inline"
 								>scroll to zoom · drag to pan</span
 							>
 						</div>
-						{#if vizTruncated}
-							<span
-								class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full"
-							>
-								Showing 2 levels of {metrics.total + 1} total nodes
-							</span>
-						{/if}
+						<div class="flex items-center gap-2 shrink-0">
+							{#if vizTruncated}
+								<span
+									class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full hidden md:inline"
+								>
+									2 levels of {metrics.total + 1}
+								</span>
+							{/if}
+							{#if tree.length}
+								<div class="relative">
+									<svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none"
+										 fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round"
+											d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+									</svg>
+									<input
+										type="text"
+										bind:value={vizSearch}
+										placeholder="Highlight agency…"
+										class="text-xs pl-7 pr-6 py-1.5 w-36 border border-gray-200 dark:border-gray-700 rounded-lg
+										       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 placeholder-gray-400
+										       focus:outline-none focus:ring-1 focus:ring-violet-500/40 focus:border-violet-400 transition-colors"
+									/>
+									{#if vizSearch}
+										<button
+											onclick={() => (vizSearch = '')}
+											class="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm leading-none px-0.5"
+											aria-label="Clear"
+										>×</button>
+									{/if}
+								</div>
+							{/if}
+						</div>
 					</div>
 					<div class="relative" style="height: 520px">
 						{#if loadingTree}
