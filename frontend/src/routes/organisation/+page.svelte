@@ -246,6 +246,11 @@
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		(svg as any).call(zoom);
 
+		// Center immediately: radial tree renders around (0,0), so without this
+		// the layout sits at the SVG's top-left corner and most nodes are off-screen.
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		(svg as any).call(zoom.transform, d3.zoomIdentity.translate(W / 2, H / 2));
+
 		// Radial tree layout
 		d3.tree<TN>().size([2 * Math.PI, R])(hier);
 
@@ -311,16 +316,19 @@
 			});
 		});
 
-		// Fit radial layout to viewport (rAF ensures getBBox has valid geometry)
+		// Refine fit after layout: getBBox returns local-space bounds (relative to g,
+		// not affected by g's translate transform), so we compute the best-fit scale
+		// and re-center. Tree is already visible from the synchronous translate above.
 		requestAnimationFrame(() => {
 			const bb = (g.node() as SVGGElement)?.getBBox();
-			if (!bb?.width && !bb?.height) return;
-			const pad = 40;
+			if (!bb || (bb.width === 0 && bb.height === 0)) return;
+			const pad = 60;
 			const sc = Math.min(
-				bb.width ? (W - pad) / bb.width : 1,
-				bb.height ? (H - pad) / bb.height : 1,
+				bb.width > 0 ? (W - pad) / bb.width : 1,
+				bb.height > 0 ? (H - pad) / bb.height : 1,
 				1
 			);
+			// bb is in g's local space (around 0,0); map to SVG viewport center
 			const tx = W / 2 - (bb.x + bb.width / 2) * sc;
 			const ty = H / 2 - (bb.y + bb.height / 2) * sc;
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
