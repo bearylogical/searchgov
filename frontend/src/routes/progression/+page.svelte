@@ -93,10 +93,10 @@
 	let searchError = $state('');
 	let careerError = $state('');
 
-	// Confidence settings
-	let confidenceThreshold = $state(50);  // integer 0–100
-	let showSettings = $state(false);
-	let refetchTimeout: ReturnType<typeof setTimeout>;
+	// Confidence settings — controls display indicators & search clustering only.
+	// The actual API fetch always uses a broad 0.5 threshold so all variants
+	// are always available; the slider just marks which are "low confidence".
+	let confidenceThreshold = $state(95);  // integer 0–100
 
 	let searchTimeout: ReturnType<typeof setTimeout>;
 
@@ -152,11 +152,14 @@
 		}
 	}
 
+	// Fixed broad fetch threshold — always pull all possible variants.
+	// The confidenceThreshold slider only controls visual indicators.
+	const BROAD_THRESHOLD = 0.5;
+
 	async function loadCareerFor(name: string) {
-		const t = confidenceThreshold / 100;
 		const [variants, raw] = await Promise.all([
-			people.similarNames(name, 15, t),
-			people.careerByName(name, true, t)
+			people.similarNames(name, 15, BROAD_THRESHOLD),
+			people.careerByName(name, true, BROAD_THRESHOLD)
 		]);
 		nameVariants = variants;
 		const sorted = [...raw].sort((a, b) => {
@@ -170,29 +173,21 @@
 	}
 
 	// ---------------------------------------------------------------------------
-	// Confidence threshold change → re-cluster search results + re-fetch career
-	// ---------------------------------------------------------------------------
-	function onThresholdChange() {
-		// re-clustering is handled reactively via $effect above
-		if (!selected) return;
-		clearTimeout(refetchTimeout);
-		refetchTimeout = setTimeout(async () => {
-			loadingCareer = true;
-			careerError = '';
-			try {
-				await loadCareerFor(selected!.name);
-			} catch (err: unknown) {
-				careerError = err instanceof Error ? err.message : 'Failed to reload';
-			} finally {
-				loadingCareer = false;
-			}
-		}, 400);
-	}
-
-	// ---------------------------------------------------------------------------
 	// Name variant toggles
 	// ---------------------------------------------------------------------------
 	const allNames = $derived(nameVariants.map(v => v.name));
+
+	// Map from name → fuzzy score (0–100) for quick lookup in the template
+	const variantScoreMap = $derived(
+		new Map(nameVariants.map(v => [v.name, v.score]))
+	);
+
+	// An entry is "low confidence" when its person_name scored below the threshold
+	function isLowConfidence(entry: EmploymentEntry): boolean {
+		if (!entry.person_name) return false;
+		const score = variantScoreMap.get(entry.person_name);
+		return score !== undefined && score < confidenceThreshold;
+	}
 
 	function toggleName(name: string) {
 		const next = new Set(activeNames);
@@ -307,10 +302,10 @@
 			<div class="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2">
 				<div class="flex items-center justify-between">
 					<span class="text-xs font-medium text-gray-500 dark:text-gray-400">
-						Name similarity — {confidenceThreshold}%
+						Confidence threshold — {confidenceThreshold}%
 					</span>
 					<span class="text-xs text-gray-400 dark:text-gray-500">
-						{confidenceThreshold >= 90 ? 'Exact only' : confidenceThreshold >= 75 ? 'Close matches' : confidenceThreshold >= 60 ? 'Moderate' : 'Broad'}
+						{confidenceThreshold >= 95 ? 'Strict' : confidenceThreshold >= 80 ? 'Moderate' : confidenceThreshold >= 65 ? 'Relaxed' : 'Broad'}
 					</span>
 				</div>
 				<input
@@ -319,11 +314,10 @@
 					max="100"
 					step="5"
 					bind:value={confidenceThreshold}
-					oninput={onThresholdChange}
 					class="w-full h-1.5 rounded-full accent-blue-600 cursor-pointer"
 				/>
 				<p class="text-xs text-gray-400 dark:text-gray-500 leading-snug">
-					Lower = merge more name variants into one result &amp; timeline
+					Variants below this score are shown with a low-confidence indicator. Also controls search grouping.
 				</p>
 			</div>
 		</div>
@@ -445,16 +439,20 @@
 							</div>
 							<div class="flex flex-wrap gap-1.5">
 								{#each nameVariants as variant}
+									{@const lowConf = variant.score < confidenceThreshold}
+									{@const active = activeNames.has(variant.name)}
 									<button
 										onclick={() => toggleName(variant.name)}
-										title="Similarity score: {variant.score}%"
+										title="Similarity score: {variant.score}%{lowConf ? ' — low confidence' : ''}"
 										class="text-xs px-2.5 py-1 rounded-full border transition-colors flex items-center gap-1.5
-										       {activeNames.has(variant.name)
+										       {active && !lowConf
 										         ? 'bg-blue-600 text-white border-blue-600'
-										         : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600 line-through opacity-50'}"
+										         : active && lowConf
+										           ? 'bg-amber-500 text-white border-amber-500'
+										           : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600 line-through opacity-50'}"
 									>
 										{variant.name}
-										<span class="font-mono tabular-nums {activeNames.has(variant.name) ? 'text-blue-200' : 'text-gray-400 dark:text-gray-500'}">
+										<span class="font-mono tabular-nums {active ? (lowConf ? 'text-amber-200' : 'text-blue-200') : 'text-gray-400 dark:text-gray-500'}">
 											{variant.score}%
 										</span>
 									</button>
@@ -522,6 +520,11 @@
 														{#if !isSamePerson(entry)}
 															<span class="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-full px-2 py-0.5">
 																Different person?
+															</span>
+														{/if}
+														{#if isLowConfidence(entry)}
+															<span class="inline-flex items-center gap-1 text-xs font-medium text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-full px-2 py-0.5">
+																Low confidence
 															</span>
 														{/if}
 														{#if isActive(entry)}
