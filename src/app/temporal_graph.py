@@ -190,8 +190,8 @@ class TemporalGraph:
         self,
         person_name: str,
         is_fuzzy: bool = True,
+        threshold: float = 0.5,
         pg_similarity_threshold: float = 0.3,
-        fw_primary_similarity_threshold: float = 0.98,
         max_similar_names: int = 10,
         enable_pairwise: bool = True,
         fw_pairwise_check_threshold: float = 0.8,
@@ -206,7 +206,7 @@ class TemporalGraph:
             person_name,
             is_fuzzy,
             min_similarity_threshold=pg_similarity_threshold,
-            fw_primary_similarity_threshold=fw_primary_similarity_threshold,
+            fw_primary_similarity_threshold=threshold,
             max_similar_names=max_similar_names,
             enable_pairwise_deep_check=enable_pairwise,
             fw_pairwise_check_threshold=fw_pairwise_check_threshold,
@@ -218,10 +218,13 @@ class TemporalGraph:
         self,
         name: str,
         limit: int = 10,
+        threshold: float = 0.5,
     ) -> List[Dict]:
         """Return name variants similar to *name* with fuzzywuzzy scores."""
         return await self.query_service.get_similar_names_with_scores(
-            name, limit=limit
+            name,
+            fw_primary_threshold=threshold,
+            limit=limit,
         )
 
     async def get_career_progression_by_person_id(

@@ -101,14 +101,14 @@ export const people = {
 	career: (personId: number) =>
 		apiFetch<EmploymentEntry[]>(`/people/${personId}/career`),
 
-	careerByName: (name: string, fuzzy = true) =>
+	careerByName: (name: string, fuzzy = true, threshold = 0.5) =>
 		apiFetch<EmploymentEntry[]>(
-			`/people/career?name=${encodeURIComponent(name)}&fuzzy=${fuzzy}`
+			`/people/career?name=${encodeURIComponent(name)}&fuzzy=${fuzzy}&threshold=${threshold}`
 		),
 
-	similarNames: (name: string, limit = 10) =>
+	similarNames: (name: string, limit = 10, threshold = 0.5) =>
 		apiFetch<NameVariant[]>(
-			`/people/similar-names?q=${encodeURIComponent(name)}&limit=${limit}`
+			`/people/similar-names?q=${encodeURIComponent(name)}&limit=${limit}&threshold=${threshold}`
 		),
 
 	colleagues: (personId: number, date?: string) => {
