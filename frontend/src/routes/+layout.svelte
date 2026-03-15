@@ -23,7 +23,8 @@
 	const navLinks = [
 		{ href: '/', label: 'Home' },
 		{ href: '/progression', label: 'Progression' },
-		{ href: '/organisation', label: 'Organisations' }
+		{ href: '/organisation', label: 'Organisations' },
+		{ href: '/connectivity', label: 'Connectivity' }
 	];
 
 	const initials = $derived(

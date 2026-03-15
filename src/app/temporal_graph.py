@@ -338,6 +338,16 @@ class TemporalGraph:
                 person1, person2, people_only
             )
 
+    async def get_colleague_network(
+        self,
+        person_id: Union[List[int], int],
+        max_degree: int = 1,
+    ) -> Dict[str, Any]:
+        """Get the colleague network for a person (for D3 node expansion)."""
+        return await self.graph_service.get_colleague_network(
+            person_id, max_degree
+        )
+
     async def calculate_centrality_metrics(
         self, target_date: str = None
     ) -> Dict[str, Dict]:
