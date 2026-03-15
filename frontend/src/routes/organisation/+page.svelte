@@ -31,8 +31,6 @@
 	let debounceTimer: ReturnType<typeof setTimeout>;
 	let sliderTimer: ReturnType<typeof setTimeout>;
 
-	const MAX_VIZ_NODES = 300;
-
 	// ── Lifecycle ─────────────────────────────────────────────────────────────
 	onMount(async () => {
 		try {
@@ -188,58 +186,49 @@
 	});
 
 	function renderTree(container: HTMLDivElement, root: OrgResult, desc: OrgResult[]): boolean {
+		// Short display name: use rightmost segment after ":"
+		const shortName = (n: string) => n.split(':').pop()?.trim() ?? n;
+
+		// Word-wrap helper — returns array of lines
+		const wrapLines = (text: string, maxChars: number): string[] => {
+			const words = text.split(/\s+/);
+			const lines: string[] = [];
+			let cur = '';
+			for (const w of words) {
+				const next = cur ? `${cur} ${w}` : w;
+				if (cur && next.length > maxChars) { lines.push(cur); cur = w; }
+				else cur = next;
+			}
+			if (cur) lines.push(cur);
+			return lines;
+		};
+
 		// Build deduplicated node list
 		const seen = new Set<string>();
-		const nodes: TN[] = [];
-		const add = (n: TN) => {
-			if (!seen.has(n.id)) {
-				seen.add(n.id);
-				nodes.push(n);
-			}
-		};
+		const rawNodes: TN[] = [];
+		const add = (n: TN) => { if (!seen.has(n.id)) { seen.add(n.id); rawNodes.push(n); } };
 		add({ id: String(root.id), pid: null, name: root.name });
 		for (const d of desc) {
 			add({ id: String(d.id), pid: String(d.parent_org_id ?? root.id), name: d.name });
 		}
 
-		// BFS-cap to MAX_VIZ_NODES
-		let display = nodes;
-		let truncated = false;
-		if (nodes.length > MAX_VIZ_NODES) {
-			truncated = true;
-			const pmap = new Map<string, TN[]>();
-			for (const n of nodes) {
-				if (n.pid) {
-					const arr = pmap.get(n.pid) ?? [];
-					arr.push(n);
-					pmap.set(n.pid, arr);
-				}
-			}
-			display = [nodes[0]];
-			const q = [nodes[0].id];
-			let qi = 0;
-			while (qi < q.length && display.length < MAX_VIZ_NODES) {
-				const pid = q[qi++];
-				for (const ch of pmap.get(pid) ?? []) {
-					if (display.length >= MAX_VIZ_NODES) break;
-					display.push(ch);
-					q.push(ch.id);
-				}
-			}
-		}
-
 		// Stratify
 		let hier: d3.HierarchyNode<TN>;
 		try {
-			hier = d3.stratify<TN>().id((n) => n.id).parentId((n) => n.pid)(display);
+			hier = d3.stratify<TN>().id((n) => n.id).parentId((n) => n.pid)(rawNodes);
 		} catch {
-			return truncated;
+			return false;
 		}
+
+		// Prune to depth 2 (root + 2 rings)
+		const fullCount = hier.descendants().length;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		hier.each((n: any) => { if (n.depth >= 2) n.children = undefined; });
+		const truncated = fullCount > hier.descendants().length;
 
 		const W = container.clientWidth || 800;
 		const H = 520;
-		const nCount = hier.descendants().length;
-		const nodeSpacing = Math.max(14, Math.min(22, 3200 / nCount));
+		const R = Math.min(W, H) / 2 - 80;
 
 		container.innerHTML = '';
 
@@ -253,7 +242,6 @@
 
 		const g = svg.append('g');
 
-		// Zoom / pan
 		const zoom = d3
 			.zoom<SVGSVGElement, unknown>()
 			.scaleExtent([0.1, 4])
@@ -261,12 +249,12 @@
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		(svg as any).call(zoom);
 
-		// Tree layout
-		d3.tree<TN>().nodeSize([nodeSpacing, 210])(hier);
+		// Radial tree layout
+		d3.tree<TN>().size([2 * Math.PI, R])(hier);
 
 		const palette = ['#7c3aed', '#8b5cf6', '#a78bfa', '#c4b5fd', '#ede9fe'];
 
-		// Links
+		// Links — radial curves
 		g.selectAll('path.link')
 			.data(hier.links())
 			.join('path')
@@ -275,16 +263,18 @@
 			.attr('stroke', '#e5e7eb')
 			.attr('stroke-width', 1)
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.attr('d', (d3.linkHorizontal() as any).x((d: any) => d.y).y((d: any) => d.x));
+			.attr('d', (d3.linkRadial() as any).angle((d: any) => d.x).radius((d: any) => d.y));
 
-		// Node groups
+		// Node groups — polar → cartesian via rotate+translate
 		const nodeG = g
 			.selectAll('g.node')
 			.data(hier.descendants())
 			.join('g')
 			.attr('class', 'node')
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.attr('transform', (d: any) => `translate(${d.y},${d.x})`);
+			.attr('transform', (d: any) =>
+				`rotate(${(d.x * 180) / Math.PI - 90}) translate(${d.y}, 0)`
+			);
 
 		nodeG
 			.append('circle')
@@ -295,35 +285,38 @@
 			.attr('stroke', '#fff')
 			.attr('stroke-width', 1.5);
 
-		nodeG
-			.append('title')
-			.text((d) => d.data.name);
+		nodeG.append('title').text((d) => d.data.name);
 
-		nodeG
-			.append('text')
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.attr('x', (d: any) => (d.children ? -10 : 10))
-			.attr('dy', '0.35em')
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.attr('text-anchor', (d: any) => (d.children ? 'end' : 'start'))
-			.attr('font-size', 10)
-			.attr('fill', '#4b5563')
-			.text((d) => {
-				const n = d.data.name;
-				return n.length > 30 ? n.slice(0, 30) + '…' : n;
+		// Word-wrapped labels
+		nodeG.each(function (d: any) {
+			const grp = d3.select(this);
+			const label = d.depth === 0 ? d.data.name : shortName(d.data.name);
+			const lines = wrapLines(label, d.depth === 0 ? 25 : 15);
+			const isLeft = d.x > Math.PI;
+			const isRoot = d.depth === 0;
+			const anchor = isRoot ? 'middle' : isLeft ? 'end' : 'start';
+			const xOff = isRoot ? 0 : isLeft ? -10 : 10;
+			const totalLines = lines.length;
+
+			const text = grp
+				.append('text')
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				.attr('transform', !isRoot && isLeft ? 'rotate(180)' : (null as any))
+				.attr('text-anchor', anchor)
+				.attr('font-size', isRoot ? 11 : 9)
+				.attr('fill', '#374151');
+
+			lines.forEach((line, i) => {
+				text.append('tspan')
+					.attr('x', xOff)
+					.attr('dy', i === 0 ? `${-((totalLines - 1) * 1.1) / 2}em` : '1.1em')
+					.text(line);
 			});
-
-		// Fit to view after layout
-		requestAnimationFrame(() => {
-			const bb = (g.node() as SVGGElement)?.getBBox();
-			if (!bb?.width) return;
-			const pad = 36;
-			const sc = Math.min((W - pad) / bb.width, (H - pad) / bb.height, 0.95);
-			const tx = pad / 2 - bb.x * sc;
-			const ty = H / 2 - (bb.y + bb.height / 2) * sc;
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(svg as any).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(sc));
 		});
+
+		// Center the radial in the viewport
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		(svg as any).call(zoom.transform, d3.zoomIdentity.translate(W / 2, H / 2));
 
 		return truncated;
 	}
@@ -622,7 +615,7 @@
 							<span
 								class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full"
 							>
-								Showing first {MAX_VIZ_NODES} of {metrics.total + 1} nodes
+								Showing 2 levels of {metrics.total + 1} total nodes
 							</span>
 						{/if}
 					</div>
@@ -681,9 +674,6 @@
 								oninput={onSliderInput}
 								class="w-full h-2 rounded-full appearance-none cursor-pointer accent-violet-600
 								       bg-gray-200 dark:bg-gray-700"
-								style="background: linear-gradient(to right,
-								  #7c3aed {(sliderIdx / (timeline.length - 1)) * 100}%,
-								  rgb(229 231 235) {(sliderIdx / (timeline.length - 1)) * 100}%)"
 							/>
 						</div>
 

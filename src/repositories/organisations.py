@@ -239,8 +239,8 @@ class OrganisationsRepository(BaseRepository):
     ) -> int:
         """
         Count distinct people with active employment in the org subtree
-        on the given date.  Uses the employment table's start_date /
-        end_date columns (NULL end_date = still active).
+        on the given date. Uses month-level truncation for alignment with
+        snapshot dates in the timeline.
         """
         import datetime
 
@@ -263,8 +263,10 @@ class OrganisationsRepository(BaseRepository):
                 SELECT COUNT(DISTINCT e.person_id) AS headcount
                 FROM employment e
                 WHERE e.org_id IN (SELECT id FROM org_subtree)
-                  AND e.start_date <= $2::date
-                  AND (e.end_date IS NULL OR e.end_date >= $2::date);
+                  AND DATE_TRUNC('month', e.start_date)
+                      <= DATE_TRUNC('month', $2::date)
+                  AND DATE_TRUNC('month', e.end_date)
+                      >= DATE_TRUNC('month', $2::date);
                 """,
                 org_id,
                 target_date_obj,
