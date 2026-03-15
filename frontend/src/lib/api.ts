@@ -9,9 +9,19 @@ async function apiFetch<T>(
 	path: string,
 	options: RequestInit = {}
 ): Promise<T> {
-	const token = await getAccessToken();
+	let token: string | null = null;
+	try {
+		token = await getAccessToken();
+	} catch {
+		// Supabase client may throw if it can't parse a stored/refreshed session
+		// (e.g. self-signed cert rejection in Firefox). Proceed without a token so
+		// the server returns a clean 401 rather than crashing the call.
+	}
+	const isWriteMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(
+		(options.method ?? 'GET').toUpperCase()
+	);
 	const headers: Record<string, string> = {
-		'Content-Type': 'application/json',
+		...(isWriteMethod ? { 'Content-Type': 'application/json' } : {}),
 		...(options.headers as Record<string, string>)
 	};
 	if (token) headers['Authorization'] = `Bearer ${token}`;
