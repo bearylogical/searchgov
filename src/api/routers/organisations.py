@@ -70,6 +70,20 @@ async def get_org_diff(
     )
 
 
+@router.get("/{org_id}/headcount", response_model=Dict[str, int])
+async def get_org_headcount(
+    org_id: int,
+    date: Optional[str] = Query(
+        None, description="Target date (YYYY-MM-DD); defaults to today"
+    ),
+    facade=Depends(get_facade),
+):
+    """Count distinct employees active in the org subtree on a given date."""
+    resolved = _validate_date(date, "date") if date else str(dt_date.today())
+    headcount = await facade.get_org_headcount(org_id, resolved)
+    return {"headcount": headcount, "date": resolved}
+
+
 @router.get("/{org_id}/root", response_model=Dict[str, Any])
 async def get_org_root(
     org_id: int,

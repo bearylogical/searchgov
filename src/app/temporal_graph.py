@@ -105,7 +105,7 @@ class TemporalGraph:
         return await self.query_service.find_colleagues_at_date(
             person_name, target_date, is_fuzzy
         )
-    
+
     async def find_any(
         self,
         query: str,
@@ -114,10 +114,12 @@ class TemporalGraph:
         """Find any person, organisation entity by name"""
         result = {}
         result["people"] = await self.find_person_by_name(query, is_fuzzy)
-        result["organisations"] = await self.find_organisation_by_name(query, is_fuzzy)
+        result["organisations"] = await self.find_organisation_by_name(
+            query, is_fuzzy
+        )
 
         return result
-    
+
     async def find_organisation_by_name(
         self,
         org_name: str,
@@ -128,7 +130,7 @@ class TemporalGraph:
             return await self.orgs_repo.search_by_name_fuzzy(org_name)
         else:
             return await self.orgs_repo.find_by_name(org_name)
-    
+
     async def find_person_by_name(
         self,
         person_name: str,
@@ -275,9 +277,7 @@ class TemporalGraph:
         is_temporal: bool = True,
     ) -> List[str]:
         """Find the shortest path between two people in the graph"""
-        logger.debug(
-            f"Finding shortest path between {person1} and {person2}"
-        )
+        logger.debug(f"Finding shortest path between {person1} and {person2}")
         # convert all to int if they are not already
         if isinstance(person1, list):
             person1 = [int(p) for p in person1]
@@ -412,6 +412,10 @@ class TemporalGraph:
             person_id, name_filter, limit
         )
 
+    async def get_org_headcount(self, org_id: int, target_date: str) -> int:
+        """Count distinct employees active in the org subtree on a date."""
+        return await self.orgs_repo.get_headcount_at_date(org_id, target_date)
+
     async def get_org_by_id(self, org_id: int) -> Dict[str, Any]:
         """Fetch a single organisation by its ID."""
         return await self.orgs_repo.find_by_org_id(org_id)
@@ -476,9 +480,7 @@ class TemporalGraph:
                 f"From {len(dates)} dates, filtered to {len(filtered_dates)} distinct dates."
             )
             return filtered_dates
-        return await self.orgs_service.get_organization_timeline(
-            parent_org_id
-        )
+        return await self.orgs_service.get_organization_timeline(parent_org_id)
 
     async def get_org_descendants_diff_between_dates(
         self,
@@ -498,10 +500,8 @@ class TemporalGraph:
         Returns:
             A list of dictionaries representing the differences in descendants.
         """
-        return (
-            await self.orgs_service.get_org_descendants_diff_between_dates(
-                parent_org_id, start_date, end_date
-            )
+        return await self.orgs_service.get_org_descendants_diff_between_dates(
+            parent_org_id, start_date, end_date
         )
 
     async def close(self):

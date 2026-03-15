@@ -2,7 +2,8 @@ from .base import BaseRepository
 from typing import Dict, Any, Optional, List
 import json
 
-from loguru import logger   
+from loguru import logger
+
 # Default similarity threshold for fuzzy matching in this repository
 DEFAULT_MIN_SIMILARITY_THRESHOLD_REPO = 0.3
 
@@ -82,9 +83,7 @@ class OrganisationsRepository(BaseRepository):
             )
             return self._row_to_dict(row)
 
-    async def get_children(
-        self, parent_org_id: int
-    ) -> List[Dict[str, Any]]:
+    async def get_children(self, parent_org_id: int) -> List[Dict[str, Any]]:
         """Get all direct children of a given parent organization."""
         async with self.db.acquire() as conn:
             rows = await conn.fetch(
@@ -234,7 +233,44 @@ class OrganisationsRepository(BaseRepository):
             )
             # Fetch all rows and flatten the list of tuples into a list of strings
             return [row["event_date"].isoformat() for row in rows]
-        
+
+    async def get_headcount_at_date(
+        self, org_id: int, target_date: str
+    ) -> int:
+        """
+        Count distinct people with active employment in the org subtree
+        on the given date.  Uses the employment table's start_date /
+        end_date columns (NULL end_date = still active).
+        """
+        import datetime
+
+        if isinstance(target_date, str):
+            target_date_obj = datetime.datetime.strptime(
+                target_date, "%Y-%m-%d"
+            ).date()
+        else:
+            target_date_obj = target_date
+
+        async with self.db.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                WITH RECURSIVE org_subtree AS (
+                    SELECT id FROM organizations WHERE id = $1
+                    UNION ALL
+                    SELECT o.id FROM organizations o
+                    JOIN org_subtree s ON o.parent_org_id = s.id
+                )
+                SELECT COUNT(DISTINCT e.person_id) AS headcount
+                FROM employment e
+                WHERE e.org_id IN (SELECT id FROM org_subtree)
+                  AND e.start_date <= $2::date
+                  AND (e.end_date IS NULL OR e.end_date >= $2::date);
+                """,
+                org_id,
+                target_date_obj,
+            )
+            return int(row["headcount"]) if row else 0
+
     async def search_by_name_fuzzy(
         self,
         name_query: str,
@@ -291,7 +327,9 @@ class OrganisationsRepository(BaseRepository):
                 # For other unexpected database errors, re-raise to allow higher-level handling.
                 # Consider logging the error here as well.
                 # For example: self.logger.error(f"DB error during fuzzy search for '{name_query}': {e}")
-                logger.error(f"DB error during fuzzy search for '{name_query}': {e}")
+                logger.error(
+                    f"DB error during fuzzy search for '{name_query}': {e}"
+                )
                 raise
         # This path should ideally not be reached if exceptions are properly handled/re-raised.
         return []

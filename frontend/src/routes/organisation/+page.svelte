@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { organisations } from '$lib/api';
 	import type { OrgResult } from '$lib/api';
 	import { isAuthenticated, authReady } from '$lib/auth';
@@ -23,8 +23,10 @@
 	let loadingTree = $state(false);
 	let loadingRoots = $state(true);
 	let searchError = $state('');
+	let headcount = $state<number | null>(null);
+	let loadingHeadcount = $state(false);
 	let vizTruncated = $state(false);
-	let vizEl = $state<HTMLDivElement | undefined>();
+	let vizEl = $state<HTMLDivElement | undefined>(); // $state for bind:this; tick() handles timing
 
 	let debounceTimer: ReturnType<typeof setTimeout>;
 	let sliderTimer: ReturnType<typeof setTimeout>;
@@ -71,6 +73,7 @@
 		tree = [];
 		timeline = [];
 		selectedDate = '';
+		headcount = null;
 		loadingTree = true;
 		try {
 			[tree, timeline] = await Promise.all([
@@ -83,6 +86,21 @@
 			}
 		} finally {
 			loadingTree = false;
+		}
+		// Fetch headcount at the selected snapshot (non-blocking)
+		fetchHeadcount(org.id, selectedDate);
+	}
+
+	async function fetchHeadcount(orgId: number, date: string) {
+		if (!date) return;
+		loadingHeadcount = true;
+		try {
+			const res = await organisations.headcount(orgId, date);
+			headcount = res.headcount;
+		} catch {
+			headcount = null;
+		} finally {
+			loadingHeadcount = false;
 		}
 	}
 
@@ -101,6 +119,7 @@
 		} finally {
 			loadingTree = false;
 		}
+		fetchHeadcount(selected.id, selectedDate);
 	}
 
 	// ── Formatting ────────────────────────────────────────────────────────────
@@ -137,20 +156,35 @@
 		return { total: tree.length, depth: maxDepth, breadth: maxBreadth };
 	});
 
+	// ── Year ticks for slider ─────────────────────────────────────────────────
+	let yearTicks = $derived.by(() => {
+		if (timeline.length < 2) return [] as { year: number; pct: number }[];
+		const seen = new Set<number>();
+		const ticks: { year: number; pct: number }[] = [];
+		for (let i = 0; i < timeline.length; i++) {
+			const year = new Date(timeline[i]).getFullYear();
+			if (!seen.has(year)) {
+				seen.add(year);
+				ticks.push({ year, pct: (i / (timeline.length - 1)) * 100 });
+			}
+		}
+		return ticks;
+	});
+
 	// ── D3 tree ───────────────────────────────────────────────────────────────
 	type TN = { id: string; pid: string | null; name: string };
 
 	$effect(() => {
-		// Track reactive dependencies
-		const _sel = selected;
-		const _tree = tree;
-		const _loading = loadingTree;
-		const _el = vizEl;
-		if (!_el || !_sel || _loading || !_tree.length) {
-			if (_el) _el.innerHTML = '';
-			return;
-		}
-		vizTruncated = renderTree(_el, _sel, _tree);
+		// Capture reactive values synchronously so the async callback stays consistent
+		const sel = selected;
+		const currentTree = tree;
+		const loading = loadingTree;
+		if (!sel || loading || !currentTree.length) return;
+		// tick() waits for Svelte to finish DOM updates (including bind:this on vizEl)
+		tick().then(() => {
+			if (!vizEl) return;
+			vizTruncated = renderTree(vizEl, sel, currentTree);
+		});
 	});
 
 	function renderTree(container: HTMLDivElement, root: OrgResult, desc: OrgResult[]): boolean {
@@ -551,20 +585,22 @@
 						<div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">Levels below root</div>
 					</div>
 
-					<!-- Snapshots -->
+					<!-- Employees at snapshot -->
 					<div
 						class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm"
 					>
-						<div class="text-2xl font-bold text-emerald-600">{timeline.length}</div>
-						<div class="text-xs font-medium text-gray-600 dark:text-gray-400 mt-1">Snapshots</div>
+						{#if loadingHeadcount}
+							<div
+								class="h-8 w-14 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse mb-1"
+							></div>
+						{:else}
+							<div class="text-2xl font-bold text-emerald-600">
+								{headcount !== null ? headcount.toLocaleString() : '—'}
+							</div>
+						{/if}
+						<div class="text-xs font-medium text-gray-600 dark:text-gray-400 mt-1">Employees</div>
 						<div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
-							{#if timeline.length > 1}
-								{fmt(timeline[0])} – {fmt(timeline[timeline.length - 1])}
-							{:else if timeline.length === 1}
-								{fmt(timeline[0])}
-							{:else}
-								No data
-							{/if}
+							At {selectedDate ? fmt(selectedDate) : 'snapshot'}
 						</div>
 					</div>
 				</div>
@@ -617,36 +653,53 @@
 					<div
 						class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm"
 					>
-						<div class="flex items-center justify-between mb-3">
+						<!-- Header -->
+						<div class="flex items-center justify-between mb-4">
 							<div>
-								<span class="text-xs font-medium text-gray-600 dark:text-gray-400"
-									>Snapshot date</span
-								>
+								<span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+									Snapshot
+								</span>
 								{#if loadingTree}
-									<div
-										class="h-4 w-24 bg-gray-100 dark:bg-gray-800 rounded animate-pulse mt-1"
-									></div>
+									<div class="h-5 w-24 bg-gray-100 dark:bg-gray-800 rounded animate-pulse mt-1"></div>
 								{:else}
-									<p class="text-sm font-semibold text-violet-600 mt-0.5">{fmt(selectedDate)}</p>
+									<p class="text-lg font-bold text-violet-600 mt-0.5 leading-none">{fmt(selectedDate)}</p>
 								{/if}
 							</div>
-							<span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+							<span class="text-xs tabular-nums text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full">
 								{sliderIdx + 1} / {timeline.length}
 							</span>
 						</div>
-						<input
-							type="range"
-							min="0"
-							max={timeline.length - 1}
-							bind:value={sliderIdx}
-							oninput={onSliderInput}
-							class="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-violet-600"
-						/>
-						<div class="flex justify-between mt-2">
-							<span class="text-xs text-gray-400 dark:text-gray-500">{fmt(timeline[0])}</span>
-							<span class="text-xs text-gray-400 dark:text-gray-500"
-								>{fmt(timeline[timeline.length - 1])}</span
-							>
+
+						<!-- Slider track + thumb -->
+						<div class="relative px-1">
+							<input
+								type="range"
+								min="0"
+								max={timeline.length - 1}
+								step="1"
+								bind:value={sliderIdx}
+								oninput={onSliderInput}
+								class="w-full h-2 rounded-full appearance-none cursor-pointer accent-violet-600
+								       bg-gray-200 dark:bg-gray-700"
+								style="background: linear-gradient(to right,
+								  #7c3aed {(sliderIdx / (timeline.length - 1)) * 100}%,
+								  rgb(229 231 235) {(sliderIdx / (timeline.length - 1)) * 100}%)"
+							/>
+						</div>
+
+						<!-- Year tick marks -->
+						<div class="relative mt-3 h-6 px-1">
+							{#each yearTicks as tick}
+								<div
+									class="absolute flex flex-col items-center"
+									style="left: {tick.pct}%; transform: translateX(-50%)"
+								>
+									<div class="w-px h-2 bg-gray-300 dark:bg-gray-600"></div>
+									<span class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 tabular-nums">
+										{tick.year}
+									</span>
+								</div>
+							{/each}
 						</div>
 					</div>
 				{/if}
