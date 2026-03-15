@@ -734,8 +734,9 @@
 				<h1 class="text-base font-semibold text-gray-900 dark:text-gray-100">Connectivity Explorer</h1>
 				<InfoTip tip="Find the shortest connection path between two people through shared organisations. Click any person node to view their network stats." />
 			</div>
-			<div class="flex-1 min-w-[160px] max-w-xs">
-				<ConfidenceSlider bind:value={confidenceThreshold} />
+			<div class="flex items-center gap-1 min-w-[160px] max-w-xs flex-1">
+				<ConfidenceSlider bind:value={confidenceThreshold} compact={true} />
+				<InfoTip tip="Variants below this score land in &quot;Not in timeline&quot; by default. Also controls search grouping." />
 			</div>
 			<label class="flex items-center gap-2 cursor-pointer group shrink-0">
 				<input type="checkbox" bind:checked={temporal}

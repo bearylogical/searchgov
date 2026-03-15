@@ -1,10 +1,11 @@
 <script lang="ts">
 	interface Props {
 		value: number;
+		compact?: boolean;
 		onchange?: (value: number) => void;
 	}
 
-	let { value = $bindable(95), onchange }: Props = $props();
+	let { value = $bindable(95), compact = false, onchange }: Props = $props();
 
 	const label = $derived(
 		value >= 95 ? 'Strict' : value >= 80 ? 'Moderate' : value >= 65 ? 'Relaxed' : 'Broad'
@@ -29,8 +30,10 @@
 		oninput={handleInput}
 		class="w-full h-1.5 rounded-full accent-blue-600 cursor-pointer"
 	/>
-	<p class="text-xs text-gray-400 dark:text-gray-500 leading-snug">
-		Variants below this score land in "Not in timeline" by default.
-		Also controls search grouping.
-	</p>
+	{#if !compact}
+		<p class="text-xs text-gray-400 dark:text-gray-500 leading-snug">
+			Variants below this score land in "Not in timeline" by default.
+			Also controls search grouping.
+		</p>
+	{/if}
 </div>
