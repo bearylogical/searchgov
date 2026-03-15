@@ -68,3 +68,21 @@ async def get_org_diff(
     return await facade.get_org_descendants_diff_between_dates(
         org_id, start_date, end_date
     )
+
+
+@router.get("/{org_id}/root", response_model=Dict[str, Any])
+async def get_org_root(
+    org_id: int,
+    facade=Depends(get_facade),
+):
+    """Return the root (ministry-level) organisation for any org ID."""
+    return await facade.get_org_root(org_id)
+
+
+@router.get("/{org_id}", response_model=Dict[str, Any])
+async def get_org_by_id(
+    org_id: int,
+    facade=Depends(get_facade),
+):
+    """Fetch a single organisation by its ID."""
+    return await facade.get_org_by_id(org_id)
