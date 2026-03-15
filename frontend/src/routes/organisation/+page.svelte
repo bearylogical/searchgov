@@ -205,8 +205,15 @@
 		const rawNodes: TN[] = [];
 		const add = (n: TN) => { if (!seen.has(n.id)) { seen.add(n.id); rawNodes.push(n); } };
 		add({ id: String(root.id), pid: null, name: root.name });
+		// First pass: collect all valid IDs so orphan detection works in one scan
+		const validIds = new Set<string>([String(root.id)]);
+		for (const d of desc) validIds.add(String(d.id));
 		for (const d of desc) {
-			add({ id: String(d.id), pid: String(d.parent_org_id ?? root.id), name: d.name });
+			const rawPid = d.parent_org_id != null ? String(d.parent_org_id) : null;
+			// If parent exists in the tree use it; otherwise attach directly to root
+			// (guards against dissolved intermediate orgs leaving dangling refs)
+			const pid = rawPid && validIds.has(rawPid) ? rawPid : String(root.id);
+			add({ id: String(d.id), pid, name: d.name });
 		}
 
 		// Stratify
