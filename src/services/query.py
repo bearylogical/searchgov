@@ -583,18 +583,37 @@ class QueryService:
                         and existing_profile["entity_name"]
                         == profile["entity_name"]
                     ):
-                        existing_profile["start_date"] = min(
-                            existing_profile["start_date"],
-                            profile["start_date"],
-                        )
-                        existing_profile["end_date"] = max(
-                            existing_profile["end_date"],
-                            profile["end_date"],
-                        )
-                        existing_profile["tenure_days"] = (
-                            existing_profile["end_date"]
-                            - existing_profile["start_date"]
-                        ).days
+                        # Take the earlier start date (both are non-null)
+                        if (
+                            existing_profile["start_date"] is not None
+                            and profile["start_date"] is not None
+                        ):
+                            existing_profile["start_date"] = min(
+                                existing_profile["start_date"],
+                                profile["start_date"],
+                            )
+                        # None end_date means still active — treat as
+                        # later than any concrete date
+                        if (
+                            existing_profile["end_date"] is None
+                            or profile["end_date"] is None
+                        ):
+                            existing_profile["end_date"] = None
+                        else:
+                            existing_profile["end_date"] = max(
+                                existing_profile["end_date"],
+                                profile["end_date"],
+                            )
+                        if (
+                            existing_profile["end_date"] is not None
+                            and existing_profile["start_date"] is not None
+                        ):
+                            existing_profile["tenure_days"] = (
+                                existing_profile["end_date"]
+                                - existing_profile["start_date"]
+                            ).days
+                        else:
+                            existing_profile["tenure_days"] = None
         return deduplicated_profiles
 
     async def get_career_progression_by_person_id(

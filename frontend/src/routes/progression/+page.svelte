@@ -24,6 +24,7 @@
 	let searching = $state(false);
 	let loadingCareer = $state(false);
 	let searchError = $state('');
+	let careerError = $state('');
 
 	let searchTimeout: ReturnType<typeof setTimeout>;
 
@@ -57,6 +58,7 @@
 		originalCareer = [];
 		nameVariants = [];
 		activeNames = new Set();
+		careerError = '';
 		loadingCareer = true;
 		try {
 			// Fetch similar name variants (with scores) and full fuzzy career in parallel
@@ -74,6 +76,8 @@
 			career = sorted;
 			// All name variants active by default
 			activeNames = new Set(variants.map(v => v.name));
+		} catch (err: unknown) {
+			careerError = err instanceof Error ? err.message : 'Failed to load career data';
 		} finally {
 			loadingCareer = false;
 		}
@@ -326,7 +330,11 @@
 						</div>
 						<div class="h-64 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse"></div>
 					</div>
-				{:else if career.length === 0}
+				{:else if careerError}
+					<div class="text-center py-12">
+						<p class="text-sm text-red-500 dark:text-red-400">{careerError}</p>
+					</div>
+			{:else if career.length === 0}
 					<div class="text-center py-12">
 						<p class="text-sm text-gray-400 dark:text-gray-500 mb-3">No records match the current filters.</p>
 						{#if isDirty}
