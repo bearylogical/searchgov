@@ -108,25 +108,28 @@ class OrganisationsRepository(BaseRepository):
         else:
             target_date_obj = target_date
         async with self.db.acquire() as conn:
-            # This query first builds the entire descendant tree, then filters
-            # it based on the temporal data in the metadata JSONB field.
+            # The temporal filter is applied INSIDE the recursive member so
+            # that dissolved intermediate nodes stop the traversal.  If the
+            # filter were applied only in the final WHERE clause, a dissolved
+            # intermediate org would be excluded from the output while its
+            # children (which reference the dissolved org's id) would remain,
+            # producing dangling parent_org_id references that break d3.stratify
+            # on the frontend.
             rows = await conn.fetch(
                 """
                 WITH RECURSIVE org_hierarchy AS (
-                    -- Anchor member: the starting parent organization
+                    -- Anchor member: the root org (never filtered itself)
                     SELECT * FROM organizations WHERE id = $1
                     UNION ALL
-                    -- Recursive member: join to find children
+                    -- Recursive member: only follow active children so the
+                    -- traversal stops at dissolved intermediate orgs
                     SELECT o.* FROM organizations o
                     JOIN org_hierarchy h ON o.parent_org_id = h.id
+                    WHERE
+                        $2::date >= COALESCE((o.metadata->>'first_observed')::date, '1900-01-01'::date)
+                        AND $2::date <= COALESCE((o.metadata->>'last_observed')::date, '9999-12-31'::date)
                 )
-                SELECT * FROM org_hierarchy
-                WHERE
-                    -- Exclude the parent itself from the final result
-                    id != $1
-                    -- And apply the temporal filter
-                    AND $2::date >= COALESCE((metadata->>'first_observed')::date, '1900-01-01'::date)
-                    AND $2::date <= COALESCE((metadata->>'last_observed')::date, '9999-12-31'::date);
+                SELECT * FROM org_hierarchy WHERE id != $1;
                 """,
                 parent_org_id,
                 target_date_obj,
