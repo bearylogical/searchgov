@@ -467,7 +467,7 @@
 			.join('line')
 			.attr('stroke',          d => d.inPath ? '#818cf8' : '#cbd5e1')
 			.attr('stroke-width',    d => d.inPath ? 2.5 : 1.2)
-			.attr('stroke-dasharray',d => d.inPath ? null : '5,4')
+			.attr('stroke-dasharray',d => { if (!d.inPath) return '5,4'; return d.yearLabel ? null : '4,3'; })
 			.attr('opacity',         d => d.inPath ? 1 : 0.45);
 
 		// ── Edge year labels ───────────────────────────────
@@ -712,26 +712,32 @@
 	}
 
 	function resetGraph() {
-		pathResult = null; pathError = ''; graphNodes = []; graphEdges = [];
-		nodePositions.clear(); edgeYearCache.clear();
+		if (pathResult?.nodes.length) {
+			// Restore the original path layout
+			nodePositions.clear();
+			edgeYearCache.clear();
+			buildGraphFromPath(pathResult.nodes);
+			resolveMinistries();
+		} else {
+			pathResult = null; pathError = ''; graphNodes = []; graphEdges = [];
+			nodePositions.clear(); edgeYearCache.clear();
+		}
 	}
 </script>
 
-<div class="flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem)">
+<div class="flex flex-col overflow-hidden" style="height: calc(100vh - 3.5rem)">
 
-	<!-- ── Left sidebar ─────────────────────────────────── -->
-	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r
-	              border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-y-auto">
-
-		<div class="p-4 border-b border-gray-100 dark:border-gray-800 space-y-3">
-			<div class="flex items-center justify-between">
+	<!-- ── Row 1: Control bar ───────────────────────────── -->
+	<div class="flex-none bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-2.5">
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+			<div class="flex items-center gap-1.5 shrink-0">
 				<h1 class="text-base font-semibold text-gray-900 dark:text-gray-100">Connectivity Explorer</h1>
 				<InfoTip tip="Find the shortest connection path between two people through shared organisations. Click any person node to view their network stats." />
 			</div>
-
-			<ConfidenceSlider bind:value={confidenceThreshold} />
-
-			<label class="flex items-center gap-2 cursor-pointer group">
+			<div class="flex-1 min-w-[160px] max-w-xs">
+				<ConfidenceSlider bind:value={confidenceThreshold} />
+			</div>
+			<label class="flex items-center gap-2 cursor-pointer group shrink-0">
 				<input type="checkbox" bind:checked={temporal}
 					onchange={() => { if (source.selected && target.selected) findPath(); }}
 					class="rounded accent-blue-600 w-3.5 h-3.5"/>
@@ -740,72 +746,78 @@
 				</span>
 				<InfoTip tip="When on, only finds connections where people were physically working together at the same time. Turn off to allow any historical connection." />
 			</label>
-		</div>
-
-		<!-- Source slot -->
-		<div class="p-4 border-b border-gray-100 dark:border-gray-800 space-y-3">
-			<div class="flex items-center gap-1.5">
-				<span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
-				<p class="text-sm font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Source</p>
-				<InfoTip tip="The person you're tracing FROM. Drag variants between zones to fine-tune which name spellings are included in the search." />
-			</div>
-			<PersonSearch
-				placeholder="Search source person…"
-				{confidenceThreshold}
-				selected={source.selected}
-				accentColor="blue"
-				onselect={(p) => selectPerson(source, p)}
-				onclear={() => clearSlot(source)}
-			/>
-			{#if source.selected && source.nameVariants.length > 0}
-				<NameVariantZones
-					nameVariants={source.nameVariants}
-					activeNames={source.activeNames}
-					{confidenceThreshold}
-					inColor="blue"
-					careerData={source.career}
-					ontoggle={(name) => toggleVariant(source, name)}
-				/>
-			{/if}
-		</div>
-
-		<!-- Target slot -->
-		<div class="p-4 space-y-3">
-			<div class="flex items-center gap-1.5">
-				<span class="w-2.5 h-2.5 rounded-full border-2 border-dashed border-emerald-500 shrink-0"></span>
-				<p class="text-sm font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Target</p>
-				<InfoTip tip="The person you're tracing TO. The graph shows the shortest path between Source and Target through shared organisations." />
-			</div>
-			<PersonSearch
-				placeholder="Search target person…"
-				{confidenceThreshold}
-				selected={target.selected}
-				accentColor="emerald"
-				onselect={(p) => selectPerson(target, p)}
-				onclear={() => clearSlot(target)}
-			/>
-			{#if target.selected && target.nameVariants.length > 0}
-				<NameVariantZones
-					nameVariants={target.nameVariants}
-					activeNames={target.activeNames}
-					{confidenceThreshold}
-					inColor="emerald"
-					careerData={target.career}
-					ontoggle={(name) => toggleVariant(target, name)}
-				/>
-			{/if}
 			{#if source.selected && target.selected}
 				<button onclick={findPath} disabled={pathLoading}
-					class="w-full py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg
-					       transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-1">
+					class="shrink-0 px-4 py-1.5 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg
+					       transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
 					{pathLoading ? 'Searching…' : 'Find Connection'}
 				</button>
 			{/if}
 		</div>
-	</aside>
+	</div>
 
-	<!-- ── Right panel — D3 canvas ───────────────────────── -->
-	<section class="flex-1 relative flex flex-col bg-gray-50 dark:bg-gray-950 overflow-hidden">
+	<!-- ── Row 2: Source + Target search ────────────────── -->
+	<div class="flex-none bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+		<div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200 dark:divide-gray-700">
+
+			<!-- Source slot -->
+			<div class="p-4 space-y-3 overflow-y-auto max-h-[32vh]">
+				<div class="flex items-center gap-1.5">
+					<span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
+					<p class="text-sm font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Source</p>
+					<InfoTip tip="The person you're tracing FROM. Drag variants between zones to fine-tune which name spellings are included in the search." />
+				</div>
+				<PersonSearch
+					placeholder="Search source person…"
+					{confidenceThreshold}
+					selected={source.selected}
+					accentColor="blue"
+					onselect={(p) => selectPerson(source, p)}
+					onclear={() => clearSlot(source)}
+				/>
+				{#if source.selected && source.nameVariants.length > 0}
+					<NameVariantZones
+						nameVariants={source.nameVariants}
+						activeNames={source.activeNames}
+						{confidenceThreshold}
+						inColor="blue"
+						careerData={source.career}
+						ontoggle={(name) => toggleVariant(source, name)}
+					/>
+				{/if}
+			</div>
+
+			<!-- Target slot -->
+			<div class="p-4 space-y-3 overflow-y-auto max-h-[32vh]">
+				<div class="flex items-center gap-1.5">
+					<span class="w-2.5 h-2.5 rounded-full border-2 border-dashed border-emerald-500 shrink-0"></span>
+					<p class="text-sm font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Target</p>
+					<InfoTip tip="The person you're tracing TO. The graph shows the shortest path between Source and Target through shared organisations." />
+				</div>
+				<PersonSearch
+					placeholder="Search target person…"
+					{confidenceThreshold}
+					selected={target.selected}
+					accentColor="emerald"
+					onselect={(p) => selectPerson(target, p)}
+					onclear={() => clearSlot(target)}
+				/>
+				{#if target.selected && target.nameVariants.length > 0}
+					<NameVariantZones
+						nameVariants={target.nameVariants}
+						activeNames={target.activeNames}
+						{confidenceThreshold}
+						inColor="emerald"
+						careerData={target.career}
+						ontoggle={(name) => toggleVariant(target, name)}
+					/>
+				{/if}
+			</div>
+		</div>
+	</div>
+
+	<!-- ── Row 3: D3 canvas ─────────────────────────────── -->
+	<section class="flex-1 relative flex flex-col bg-gray-50 dark:bg-gray-950 overflow-hidden min-h-0">
 
 		<!-- Status / stat cards / toolbar -->
 		{#if pathResult || pathLoading || pathError}
