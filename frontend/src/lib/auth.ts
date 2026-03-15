@@ -12,20 +12,27 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 // Reactive session store
 // ---------------------------------------------------------------------------
 const _session = writable<Session | null>(null);
+// True until the initial getSession() check completes.
+// Guards against false redirects to /login while localStorage is being read.
+const _ready = writable(false);
 
 // Initialise from existing session (e.g. after page refresh).
 supabase.auth.getSession().then(({ data }) => {
 	_session.set(data.session);
+	_ready.set(true);
 });
 
-// Keep store in sync with Supabase auth events.
+// Keep store in sync with Supabase auth events (token refresh, sign-out, etc.)
 supabase.auth.onAuthStateChange((_event, session) => {
 	_session.set(session);
+	_ready.set(true);
 });
 
 export const session = { subscribe: _session.subscribe };
 export const user = derived(_session, (s): User | null => s?.user ?? null);
 export const isAuthenticated = derived(_session, (s) => s !== null);
+/** False while the initial session check is in flight — use this to gate auth redirects. */
+export const authReady = { subscribe: _ready.subscribe };
 
 // ---------------------------------------------------------------------------
 // Auth helpers

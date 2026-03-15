@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { organisations } from '$lib/api';
 	import type { OrgResult } from '$lib/api';
-	import { isAuthenticated } from '$lib/auth';
+	import { isAuthenticated, authReady } from '$lib/auth';
 	import { goto } from '$app/navigation';
 
 	$effect(() => {
-		if (!$isAuthenticated) goto('/login?redirect=/organisation');
+		if ($authReady && !$isAuthenticated) goto('/login?redirect=/organisation');
 	});
 
 	let query = $state('');

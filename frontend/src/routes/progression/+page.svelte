@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { people } from '$lib/api';
 	import type { PersonResult, EmploymentEntry, NameVariant } from '$lib/api';
-	import { isAuthenticated } from '$lib/auth';
+	import { isAuthenticated, authReady } from '$lib/auth';
 	import { goto } from '$app/navigation';
 
 	$effect(() => {
-		if (!$isAuthenticated) goto('/login?redirect=/progression');
+		if ($authReady && !$isAuthenticated) goto('/login?redirect=/progression');
 	});
 
 	let query = $state('');
