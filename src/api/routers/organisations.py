@@ -70,7 +70,7 @@ async def get_org_diff(
     )
 
 
-@router.get("/{org_id}/headcount", response_model=Dict[str, int])
+@router.get("/{org_id}/headcount", response_model=Dict[str, Any])
 async def get_org_headcount(
     org_id: int,
     date: Optional[str] = Query(
