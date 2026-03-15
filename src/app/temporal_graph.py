@@ -412,6 +412,17 @@ class TemporalGraph:
             person_id, name_filter, limit
         )
 
+    async def get_org_by_id(self, org_id: int) -> Dict[str, Any]:
+        """Fetch a single organisation by its ID."""
+        return await self.orgs_repo.find_by_org_id(org_id)
+
+    async def get_org_root(self, org_id: int) -> Dict[str, Any]:
+        """Traverse parent_org_id chain to return the root (ministry-level) org."""
+        org = await self.orgs_repo.find_by_org_id(org_id)
+        while org and org.get("parent_org_id"):
+            org = await self.orgs_repo.find_by_org_id(org["parent_org_id"])
+        return org or {}
+
     async def get_base_organizations(self) -> List[Dict[str, Any]]:
         """Get all base organizations in the system"""
         return await self.orgs_repo.find_by_depth(1)

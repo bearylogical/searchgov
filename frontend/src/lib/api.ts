@@ -166,7 +166,13 @@ export const organisations = {
 	diff: (orgId: number, from: string, to: string) =>
 		apiFetch<Record<string, OrgResult[]>>(
 			`/organisations/${orgId}/diff?from=${from}&to=${to}`
-		)
+		),
+
+	get: (orgId: number) =>
+		apiFetch<OrgResult>(`/organisations/${orgId}`),
+
+	root: (orgId: number) =>
+		apiFetch<OrgResult>(`/organisations/${orgId}/root`)
 };
 
 // ---------------------------------------------------------------------------
