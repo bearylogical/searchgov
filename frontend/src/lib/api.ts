@@ -172,7 +172,14 @@ export const organisations = {
 		apiFetch<OrgResult>(`/organisations/${orgId}`),
 
 	root: (orgId: number) =>
-		apiFetch<OrgResult>(`/organisations/${orgId}/root`)
+		apiFetch<OrgResult>(`/organisations/${orgId}/root`),
+
+	headcount: (orgId: number, date?: string) => {
+		const q = date ? `?date=${date}` : '';
+		return apiFetch<{ headcount: number; date: string }>(
+			`/organisations/${orgId}/headcount${q}`
+		);
+	}
 };
 
 // ---------------------------------------------------------------------------
