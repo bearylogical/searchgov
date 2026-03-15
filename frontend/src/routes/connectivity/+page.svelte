@@ -717,7 +717,7 @@
 	}
 </script>
 
-<div class="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+<div class="flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem)">
 
 	<!-- ── Left sidebar ─────────────────────────────────── -->
 	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r
