@@ -42,6 +42,7 @@
 
 	// org_id → resolved root OrgResult
 	const rootOrgCache = new Map<number, OrgResult>();
+	const orgCache     = new Map<number, OrgResult>();
 
 	async function fetchRootMinistry(orgId: number): Promise<OrgResult | null> {
 		if (rootOrgCache.has(orgId)) return rootOrgCache.get(orgId)!;
@@ -49,6 +50,15 @@
 			const root = await organisations.root(orgId);
 			rootOrgCache.set(orgId, root);
 			return root;
+		} catch { return null; }
+	}
+
+	async function fetchOrg(orgId: number): Promise<OrgResult | null> {
+		if (orgCache.has(orgId)) return orgCache.get(orgId)!;
+		try {
+			const org = await organisations.get(orgId);
+			orgCache.set(orgId, org);
+			return org;
 		} catch { return null; }
 	}
 
@@ -121,7 +131,7 @@
 		Object.assign(slot, makeSlot());
 		pathResult = null; pathError = ''; graphNodes = []; graphEdges = [];
 		ministryColorMap.clear(); nextPaletteIdx = 0;
-		nodePositions.clear(); edgeYearCache.clear();
+		nodePositions.clear(); edgeYearCache.clear(); orgCache.clear();
 	}
 
 	// ---------------------------------------------------------------------------
@@ -246,8 +256,15 @@
 
 		const resolved = await Promise.all(
 			orgNodes.map(async n => {
-				const root = await fetchRootMinistry(n.org_id!);
-				return { id: n.id, orgName: n.name, rootName: root?.name ?? n.name };
+				// Placeholder names ("Org 12345") come from expandNode — resolve the real name.
+				const isPlaceholder = /^Org \d+$/.test(n.name);
+				const [root, actual] = await Promise.all([
+					fetchRootMinistry(n.org_id!),
+					isPlaceholder ? fetchOrg(n.org_id!) : Promise.resolve(null)
+				]);
+				const orgName  = actual?.name ?? n.name;
+				const rootName = root?.name ?? orgName;
+				return { id: n.id, orgName, rootName };
 			})
 		);
 
