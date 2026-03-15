@@ -51,9 +51,13 @@ async def get_career_by_id(
 async def get_similar_names(
     q: str = Query(..., description="Name to find variants for"),
     limit: int = Query(10, ge=1, le=50),
+    threshold: float = Query(
+        0.5, ge=0.0, le=1.0,
+        description="Minimum fuzzy similarity threshold (0–1)",
+    ),
     facade=Depends(get_facade),
 ):
-    return await facade.get_similar_names(q, limit=limit)
+    return await facade.get_similar_names(q, limit=limit, threshold=threshold)
 
 
 @router.get("/career", response_model=List[Dict[str, Any]])
@@ -61,6 +65,10 @@ async def get_career_by_name(
     name: str = Query(..., description="Person name"),
     fuzzy: bool = Query(
         True, description="Use fuzzy matching to include name variants"
+    ),
+    threshold: float = Query(
+        0.5, ge=0.0, le=1.0,
+        description="Minimum fuzzy similarity threshold (0–1)",
     ),
     facade=Depends(get_facade),
 ):
@@ -72,6 +80,7 @@ async def get_career_by_name(
     return await facade.get_career_progression_by_name(
         name,
         is_fuzzy=fuzzy,
+        threshold=threshold,
         enable_pairwise=False,
         cluster_by_rank_and_entity=False,
     )

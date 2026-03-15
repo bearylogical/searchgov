@@ -8,17 +8,84 @@
 		if ($authReady && !$isAuthenticated) goto('/login?redirect=/progression');
 	});
 
+	// ---------------------------------------------------------------------------
+	// Lightweight JS port of fuzz.token_set_ratio (0–100)
+	// ---------------------------------------------------------------------------
+	function tokenSetRatio(a: string, b: string): number {
+		const tokenise = (s: string) =>
+			s
+				.toLowerCase()
+				.replace(/[^a-z0-9\s]/g, '')
+				.split(/\s+/)
+				.filter(Boolean);
+		const setA = new Set(tokenise(a));
+		const setB = new Set(tokenise(b));
+		const inter = [...setA].filter(t => setB.has(t));
+		const onlyA = [...setA].filter(t => !setB.has(t));
+		const onlyB = [...setB].filter(t => !setA.has(t));
+		const sorted = (arr: string[]) => [...arr].sort().join(' ');
+		// three string comparisons, take the max
+		const s0 = sorted(inter);
+		const s1 = [s0, sorted(onlyA)].filter(Boolean).join(' ');
+		const s2 = [s0, sorted(onlyB)].filter(Boolean).join(' ');
+		function ratio(x: string, y: string) {
+			if (!x && !y) return 100;
+			if (!x || !y) return 0;
+			let matches = 0;
+			const shorter = x.length <= y.length ? x : y;
+			const longer = x.length <= y.length ? y : x;
+			const used = new Array(longer.length).fill(false);
+			for (let i = 0; i < shorter.length; i++) {
+				for (let j = 0; j < longer.length; j++) {
+					if (!used[j] && shorter[i] === longer[j]) {
+						matches++;
+						used[j] = true;
+						break;
+					}
+				}
+			}
+			return Math.round((2 * matches / (shorter.length + longer.length)) * 100);
+		}
+		return Math.max(ratio(s0, s0), ratio(s1, s2), ratio(s0, s1), ratio(s0, s2));
+	}
+
+	// ---------------------------------------------------------------------------
+	// Cluster search results by name similarity at a given threshold (0–100)
+	// ---------------------------------------------------------------------------
+	interface Cluster {
+		primary: PersonResult;
+		members: PersonResult[];
+	}
+
+	function clusterResults(items: PersonResult[], threshold: number): Cluster[] {
+		const clusters: Cluster[] = [];
+		for (const item of items) {
+			let placed = false;
+			for (const cluster of clusters) {
+				if (tokenSetRatio(item.name, cluster.primary.name) >= threshold) {
+					cluster.members.push(item);
+					placed = true;
+					break;
+				}
+			}
+			if (!placed) {
+				clusters.push({ primary: item, members: [item] });
+			}
+		}
+		return clusters;
+	}
+
+	// ---------------------------------------------------------------------------
+	// State
+	// ---------------------------------------------------------------------------
 	let query = $state('');
-	let results = $state<PersonResult[]>([]);
+	let rawResults = $state<PersonResult[]>([]);       // unmodified API response
+	let clusters = $state<Cluster[]>([]);              // grouped for display
 	let selected = $state<PersonResult | null>(null);
 
-	// Full original fetch — never mutated so reset is always possible
 	let originalCareer = $state<EmploymentEntry[]>([]);
-	// Working copy — entries can be removed individually
 	let career = $state<EmploymentEntry[]>([]);
-	// Name variants with similarity scores fetched from backend
 	let nameVariants = $state<NameVariant[]>([]);
-	// Which name variants are toggled on
 	let activeNames = $state<Set<string>>(new Set());
 
 	let searching = $state(false);
@@ -26,8 +93,23 @@
 	let searchError = $state('');
 	let careerError = $state('');
 
+	// Confidence settings
+	let confidenceThreshold = $state(50);  // integer 0–100
+	let showSettings = $state(false);
+	let refetchTimeout: ReturnType<typeof setTimeout>;
+
 	let searchTimeout: ReturnType<typeof setTimeout>;
 
+	// ---------------------------------------------------------------------------
+	// Derived: re-cluster whenever raw results or threshold changes
+	// ---------------------------------------------------------------------------
+	$effect(() => {
+		clusters = clusterResults(rawResults, confidenceThreshold);
+	});
+
+	// ---------------------------------------------------------------------------
+	// Search
+	// ---------------------------------------------------------------------------
 	function onQueryInput() {
 		clearTimeout(searchTimeout);
 		selected = null;
@@ -35,7 +117,7 @@
 		originalCareer = [];
 		nameVariants = [];
 		activeNames = new Set();
-		if (!query.trim()) { results = []; return; }
+		if (!query.trim()) { rawResults = []; clusters = []; return; }
 		searchTimeout = setTimeout(runSearch, 300);
 	}
 
@@ -43,15 +125,18 @@
 		searching = true;
 		searchError = '';
 		try {
-			results = await people.search(query);
+			rawResults = await people.search(query);
 		} catch (err: unknown) {
 			searchError = err instanceof Error ? err.message : 'Search failed';
-			results = [];
+			rawResults = [];
 		} finally {
 			searching = false;
 		}
 	}
 
+	// ---------------------------------------------------------------------------
+	// Select person (from a cluster)
+	// ---------------------------------------------------------------------------
 	async function selectPerson(person: PersonResult) {
 		selected = person;
 		career = [];
@@ -61,29 +146,52 @@
 		careerError = '';
 		loadingCareer = true;
 		try {
-			// Fetch similar name variants (with scores) and full fuzzy career in parallel
-			const [variants, raw] = await Promise.all([
-				people.similarNames(person.name),
-				people.careerByName(person.name, true)
-			]);
-			nameVariants = variants;
-			const sorted = [...raw].sort((a, b) => {
-				if (!a.start_date) return 1;
-				if (!b.start_date) return -1;
-				return a.start_date.localeCompare(b.start_date);
-			});
-			originalCareer = sorted;
-			career = sorted;
-			// All name variants active by default
-			activeNames = new Set(variants.map(v => v.name));
-		} catch (err: unknown) {
-			careerError = err instanceof Error ? err.message : 'Failed to load career data';
+			await loadCareerFor(person.name);
 		} finally {
 			loadingCareer = false;
 		}
 	}
 
-	// All unique name variants (from backend similarity search)
+	async function loadCareerFor(name: string) {
+		const t = confidenceThreshold / 100;
+		const [variants, raw] = await Promise.all([
+			people.similarNames(name, 15, t),
+			people.careerByName(name, true, t)
+		]);
+		nameVariants = variants;
+		const sorted = [...raw].sort((a, b) => {
+			if (!a.start_date) return 1;
+			if (!b.start_date) return -1;
+			return a.start_date.localeCompare(b.start_date);
+		});
+		originalCareer = sorted;
+		career = sorted;
+		activeNames = new Set(variants.map(v => v.name));
+	}
+
+	// ---------------------------------------------------------------------------
+	// Confidence threshold change → re-cluster search results + re-fetch career
+	// ---------------------------------------------------------------------------
+	function onThresholdChange() {
+		// re-clustering is handled reactively via $effect above
+		if (!selected) return;
+		clearTimeout(refetchTimeout);
+		refetchTimeout = setTimeout(async () => {
+			loadingCareer = true;
+			careerError = '';
+			try {
+				await loadCareerFor(selected!.name);
+			} catch (err: unknown) {
+				careerError = err instanceof Error ? err.message : 'Failed to reload';
+			} finally {
+				loadingCareer = false;
+			}
+		}, 400);
+	}
+
+	// ---------------------------------------------------------------------------
+	// Name variant toggles
+	// ---------------------------------------------------------------------------
 	const allNames = $derived(nameVariants.map(v => v.name));
 
 	function toggleName(name: string) {
@@ -94,8 +202,6 @@
 			next.add(name);
 		}
 		activeNames = next;
-		// Rebuild career from originalCareer filtered by active names,
-		// excluding any entries already manually removed
 		const removedIds = new Set(
 			originalCareer
 				.filter(e => !career.some(c => c.id === e.id))
@@ -115,7 +221,9 @@
 		career = [...originalCareer];
 	}
 
-	// Profile stats derived from current (filtered) career
+	// ---------------------------------------------------------------------------
+	// Derived profile stats
+	// ---------------------------------------------------------------------------
 	const employmentSpan = $derived(() => {
 		const starts = career.map(e => e.start_date).filter(Boolean) as string[];
 		const ends = career.map(e => e.end_date).filter(Boolean) as string[];
@@ -133,6 +241,9 @@
 		career.length !== originalCareer.length || activeNames.size !== allNames.length
 	);
 
+	// ---------------------------------------------------------------------------
+	// Helpers
+	// ---------------------------------------------------------------------------
 	function formatDate(d: string | null) {
 		if (!d) return 'Present';
 		return new Date(d).toLocaleDateString('en-SG', { year: 'numeric', month: 'short' });
@@ -174,8 +285,8 @@
 <div class="flex-1 flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem - 49px)">
 	<!-- ── Left panel: search + results ───────────────── -->
 	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-		<div class="p-4 border-b border-gray-100 dark:border-gray-800">
-			<h1 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Career Progression</h1>
+		<div class="p-4 border-b border-gray-100 dark:border-gray-800 space-y-3">
+			<h1 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Career Progression</h1>
 			<div class="relative">
 				<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500 pointer-events-none"
 					fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -191,6 +302,30 @@
 					       transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
 				/>
 			</div>
+
+			<!-- Confidence control -->
+			<div class="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2">
+				<div class="flex items-center justify-between">
+					<span class="text-xs font-medium text-gray-500 dark:text-gray-400">
+						Name similarity — {confidenceThreshold}%
+					</span>
+					<span class="text-xs text-gray-400 dark:text-gray-500">
+						{confidenceThreshold >= 90 ? 'Exact only' : confidenceThreshold >= 75 ? 'Close matches' : confidenceThreshold >= 60 ? 'Moderate' : 'Broad'}
+					</span>
+				</div>
+				<input
+					type="range"
+					min="40"
+					max="100"
+					step="5"
+					bind:value={confidenceThreshold}
+					oninput={onThresholdChange}
+					class="w-full h-1.5 rounded-full accent-blue-600 cursor-pointer"
+				/>
+				<p class="text-xs text-gray-400 dark:text-gray-500 leading-snug">
+					Lower = merge more name variants into one result &amp; timeline
+				</p>
+			</div>
 		</div>
 
 		<div class="flex-1 overflow-y-auto">
@@ -202,7 +337,7 @@
 				</div>
 			{:else if searchError}
 				<div class="p-4"><p class="text-sm text-red-600">{searchError}</p></div>
-			{:else if query && results.length === 0}
+			{:else if query && clusters.length === 0}
 				<div class="p-8 text-center">
 					<svg class="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75l-2.489-2.489m0 0a3.375 3.375 0 10-4.773-4.773 3.375 3.375 0 004.774 4.774zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -218,23 +353,30 @@
 				</div>
 			{:else}
 				<ul>
-					{#each results as person}
+					{#each clusters as cluster}
 						<li>
 							<button
-								onclick={() => selectPerson(person)}
+								onclick={() => selectPerson(cluster.primary)}
 								class="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
-								       {selected?.id === person.id ? 'bg-blue-50 dark:bg-blue-950 border-r-2 border-blue-500' : ''}"
+								       {selected?.id === cluster.primary.id ? 'bg-blue-50 dark:bg-blue-950 border-r-2 border-blue-500' : ''}"
 							>
 								<div class="flex items-center gap-3">
 									<div class="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 text-xs font-semibold text-gray-600 dark:text-gray-300">
-										{person.name.slice(0, 2).toUpperCase()}
+										{cluster.primary.name.slice(0, 2).toUpperCase()}
 									</div>
 									<div class="min-w-0 flex-1">
-										<p class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{person.name}</p>
-										{#if latestOrg(person)}
-											<p class="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">{latestOrg(person)}</p>
-										{:else if person.email}
-											<p class="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">{person.email}</p>
+										<div class="flex items-center gap-1.5">
+											<p class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{cluster.primary.name}</p>
+											{#if cluster.members.length > 1}
+												<span class="shrink-0 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full px-1.5 py-0.5">
+													+{cluster.members.length - 1}
+												</span>
+											{/if}
+										</div>
+										{#if latestOrg(cluster.primary)}
+											<p class="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">{latestOrg(cluster.primary)}</p>
+										{:else if cluster.primary.email}
+											<p class="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">{cluster.primary.email}</p>
 										{/if}
 									</div>
 								</div>
@@ -338,7 +480,7 @@
 					<div class="text-center py-12">
 						<p class="text-sm text-red-500 dark:text-red-400">{careerError}</p>
 					</div>
-			{:else if career.length === 0}
+				{:else if career.length === 0}
 					<div class="text-center py-12">
 						<p class="text-sm text-gray-400 dark:text-gray-500 mb-3">No records match the current filters.</p>
 						{#if isDirty}
@@ -370,7 +512,12 @@
 											              ? 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'
 											              : 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50'}">
 												<div class="flex items-start justify-between gap-2">
-													<p class="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{orgLabel(entry)}</p>
+													<div class="min-w-0">
+														<p class="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{orgLabel(entry)}</p>
+														{#if entry.person_name && entry.person_name !== selected?.name}
+															<p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">as {entry.person_name}</p>
+														{/if}
+													</div>
 													<div class="flex items-center gap-1.5 shrink-0">
 														{#if !isSamePerson(entry)}
 															<span class="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-full px-2 py-0.5">
@@ -383,7 +530,6 @@
 																Active
 															</span>
 														{/if}
-														<!-- Remove button -->
 														<button
 															onclick={() => removeEntry(entry)}
 															title="Remove this entry"
