@@ -196,6 +196,7 @@ class TemporalGraph:
         enable_pairwise: bool = True,
         fw_pairwise_check_threshold: float = 0.8,
         min_links_for_pairwise_check: int = 3,
+        cluster_by_rank_and_entity: bool = True,
     ) -> List[Dict]:
         """Get career progression for a person by their name"""
         self.logger.debug(
@@ -210,6 +211,7 @@ class TemporalGraph:
             enable_pairwise_deep_check=enable_pairwise,
             fw_pairwise_check_threshold=fw_pairwise_check_threshold,
             min_links_for_pairwise_check=min_links_for_pairwise_check,
+            cluster_by_rank_and_entity=cluster_by_rank_and_entity,
         )
 
     async def get_similar_names(
