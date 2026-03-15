@@ -364,11 +364,12 @@
 	let simulation: d3.Simulation<GNode, GEdge> | undefined;
 
 	onMount(() => {
+		document.body.style.overflow = 'hidden';
 		const ro = new ResizeObserver(entries => {
 			for (const e of entries) { svgWidth = e.contentRect.width; svgHeight = e.contentRect.height; }
 		});
 		if (svgEl?.parentElement) ro.observe(svgEl.parentElement);
-		return () => ro.disconnect();
+		return () => { document.body.style.overflow = ''; ro.disconnect(); };
 	});
 
 	$effect(() => {
@@ -429,12 +430,35 @@
 
 		const hasPositions = simNodes.some(n => n.x != null);
 
+		// Pre-position path nodes in a horizontal sequence (reduces crossings on first render)
+		const pathNodeIds = simNodes.filter(n => n.inPath).map(n => n.id);
+		const totalPath   = pathNodeIds.length;
+		if (!hasPositions && totalPath > 1) {
+			const margin = svgWidth * 0.1;
+			const span   = svgWidth - 2 * margin;
+			simNodes.forEach(n => {
+				const idx = pathNodeIds.indexOf(n.id);
+				if (idx !== -1) {
+					n.x = margin + (idx / (totalPath - 1)) * span;
+					n.y = svgHeight / 2 + (idx % 2 === 0 ? -20 : 20);
+				}
+			});
+		}
+
 		simulation = d3.forceSimulation<GNode>(simNodes)
-			.alpha(hasPositions ? 0.15 : 1)
-			.force('link',    d3.forceLink<GNode, GEdge>(simEdges).id(d => d.id).distance(d => d.inPath ? 155 : 100))
-			.force('charge',  d3.forceManyBody().strength(-440))
-			.force('center',  d3.forceCenter(svgWidth / 2, svgHeight / 2))
-			.force('collide', d3.forceCollide<GNode>(d => nodeRadius(d) + 14));
+			.alpha(hasPositions ? 0.15 : 0.8)
+			.force('link',    d3.forceLink<GNode, GEdge>(simEdges).id(d => d.id).distance(d => d.inPath ? 140 : 90))
+			.force('charge',  d3.forceManyBody().strength(-500))
+			.force('center',  d3.forceCenter(svgWidth / 2, svgHeight / 2).strength(0.05))
+			.force('collide', d3.forceCollide<GNode>(d => nodeRadius(d) + 16))
+			// Gentle left-to-right ordering for path nodes to suppress crossings
+			.force('path-x',  d3.forceX<GNode>(d => {
+				const idx = pathNodeIds.indexOf(d.id);
+				if (idx === -1) return svgWidth / 2;
+				const margin = svgWidth * 0.1;
+				return margin + (idx / Math.max(totalPath - 1, 1)) * (svgWidth - 2 * margin);
+			}).strength(d => d.inPath ? 0.2 : 0.01))
+			.force('path-y',  d3.forceY<GNode>(svgHeight / 2).strength(d => d.inPath ? 0.1 : 0.01));
 
 		// ── Links ──────────────────────────────────────────
 		const link = g.append('g').attr('class', 'links')
@@ -693,7 +717,7 @@
 	}
 </script>
 
-<div class="flex-1 flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem - 49px)">
+<div class="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
 
 	<!-- ── Left sidebar ─────────────────────────────────── -->
 	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r
@@ -803,37 +827,37 @@
 					</div>
 				{:else if pathResult}
 					<!-- Stat cards row -->
-					<div class="flex gap-2 flex-wrap justify-center">
+					<div class="flex gap-2.5 flex-wrap justify-center">
 						<div class="bg-white dark:bg-gray-900 border border-indigo-100 dark:border-indigo-900
-						            rounded-xl px-4 py-2 shadow-sm text-center min-w-[68px]">
-							<p class="text-xl font-bold text-indigo-600 dark:text-indigo-400 tabular-nums leading-tight">{degreeBadge}</p>
-							<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide leading-none">
+						            rounded-2xl px-5 py-3 shadow-sm text-center min-w-[80px]">
+							<p class="text-3xl font-bold text-indigo-600 dark:text-indigo-400 tabular-nums leading-none">{degreeBadge}</p>
+							<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 uppercase tracking-wide font-medium">
 								{degreeBadge === 1 ? 'Degree' : 'Degrees'}
 							</p>
 						</div>
 						{#if connectionStats.ministries > 0}
 							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							            rounded-xl px-4 py-2 shadow-sm text-center min-w-[68px]">
-								<p class="text-xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-tight">{connectionStats.ministries}</p>
-								<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide leading-none">
+							            rounded-2xl px-5 py-3 shadow-sm text-center min-w-[80px]">
+								<p class="text-3xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-none">{connectionStats.ministries}</p>
+								<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 uppercase tracking-wide font-medium">
 									{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}
 								</p>
 							</div>
 						{/if}
 						{#if connectionStats.agencies > 0}
 							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							            rounded-xl px-4 py-2 shadow-sm text-center min-w-[68px]">
-								<p class="text-xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-tight">{connectionStats.agencies}</p>
-								<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide leading-none">
+							            rounded-2xl px-5 py-3 shadow-sm text-center min-w-[80px]">
+								<p class="text-3xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-none">{connectionStats.agencies}</p>
+								<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 uppercase tracking-wide font-medium">
 									{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}
 								</p>
 							</div>
 						{/if}
 						{#if overlapTimeline}
 							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							            rounded-xl px-4 py-2 shadow-sm text-center min-w-[80px]">
-								<p class="text-xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-tight">{overlapTimeline}</p>
-								<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide leading-none">Timeline</p>
+							            rounded-2xl px-5 py-3 shadow-sm text-center min-w-[96px]">
+								<p class="text-2xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-none">{overlapTimeline}</p>
+								<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 uppercase tracking-wide font-medium">Timeline</p>
 							</div>
 						{/if}
 					</div>
