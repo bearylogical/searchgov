@@ -28,6 +28,7 @@
 	let vizTruncated = $state(false);
 	let vizEl = $state<HTMLDivElement | undefined>(); // $state for bind:this; tick() handles timing
 	let vizSearch = $state('');
+	let expandedIds = $state(new Set<string>());
 
 	let debounceTimer: ReturnType<typeof setTimeout>;
 	let sliderTimer: ReturnType<typeof setTimeout>;
@@ -72,6 +73,7 @@
 		tree = [];
 		timeline = [];
 		vizSearch = '';
+		expandedIds = new Set();
 		selectedDate = '';
 		headcount = null;
 		loadingTree = true;
@@ -181,11 +183,12 @@
 		const currentTree = tree;
 		const loading = loadingTree;
 		const q = vizSearch; // track so search re-renders highlight without rebuilding data
+		const expanded = expandedIds;
 		if (!el || !sel || loading || !currentTree.length) return;
-		vizTruncated = renderTree(el, sel, currentTree, q);
+		vizTruncated = renderTree(el, sel, currentTree, q, expanded);
 	});
 
-	function renderTree(container: HTMLDivElement, root: OrgResult, desc: OrgResult[], highlight = ''): boolean {
+	function renderTree(container: HTMLDivElement, root: OrgResult, desc: OrgResult[], highlight = '', expanded: Set<string> = new Set()): boolean {
 		const q = highlight.trim().toLowerCase();
 		// Short display name: use rightmost segment after ":"
 		const shortName = (n: string) => n.split(':').pop()?.trim() ?? n;
@@ -228,15 +231,41 @@
 			return false;
 		}
 
-		// Prune to depth 2 (root + 2 rings)
+		// Track which nodes have children in the full (unpruned) tree
 		const fullCount = hier.descendants().length;
+		const hasChildren = new Set<string>();
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		hier.each((n: any) => { if (n.depth >= 2) n.children = undefined; });
+		hier.each((n: any) => { if (n.children?.length) hasChildren.add(n.data.id); });
+
+		// Search-driven auto-expansion: ancestors of matching nodes (only when q >= 2 chars)
+		const searchAutoExpand = new Set<string>();
+		if (q.length >= 2) {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			hier.each((n: any) => {
+				if (n.data.name.toLowerCase().includes(q)) {
+					let p = n.parent;
+					while (p) { searchAutoExpand.add(p.data.id); p = p.parent; }
+				}
+			});
+		}
+
+		// Prune: depth ≥ 2 is hidden unless explicitly expanded or search-revealed
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		hier.each((n: any) => {
+			if (n.depth < 2) return;
+			if (expanded.has(n.data.id) || searchAutoExpand.has(n.data.id)) return;
+			n.children = undefined;
+		});
 		const truncated = fullCount > hier.descendants().length;
 
 		const W = container.clientWidth || 800;
 		const H = 520;
 		const R = Math.min(W, H) / 2 - 80;
+
+		// Preserve zoom transform when re-rendering (e.g. expand click, search keystroke)
+		const prevSvg = d3.select(container).select<SVGSVGElement>('svg').node();
+		const savedTransform = prevSvg ? d3.zoomTransform(prevSvg) : null;
+		const isFirstRender = !savedTransform;
 
 		container.innerHTML = '';
 
@@ -257,10 +286,11 @@
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		(svg as any).call(zoom);
 
-		// Center immediately: radial tree renders around (0,0), so without this
-		// the layout sits at the SVG's top-left corner and most nodes are off-screen.
+		// Apply saved or initial transform. Radial tree renders around (0,0) so
+		// we must translate to SVG center on first render; subsequent renders restore
+		// the user's current zoom/pan so expand clicks don't jump the view.
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		(svg as any).call(zoom.transform, d3.zoomIdentity.translate(W / 2, H / 2));
+		(svg as any).call(zoom.transform, savedTransform ?? d3.zoomIdentity.translate(W / 2, H / 2));
 
 		// Radial tree layout
 		d3.tree<TN>().size([2 * Math.PI, R])(hier);
@@ -294,7 +324,20 @@
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.attr('transform', (d: any) =>
 				`rotate(${(d.x * 180) / Math.PI - 90}) translate(${d.y}, 0)`
-			);
+			)
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			.style('cursor', (d: any) => hasChildren.has(d.data.id) ? 'pointer' : 'default');
+
+		// Click: toggle expanded set (triggers Svelte effect → re-render)
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		nodeG.on('click', (event: MouseEvent, d: any) => {
+			if (!hasChildren.has(d.data.id)) return;
+			const id = d.data.id;
+			const next = new Set(expandedIds);
+			if (next.has(id)) next.delete(id); else next.add(id);
+			expandedIds = next;
+			event.stopPropagation();
+		});
 
 		nodeG
 			.append('circle')
@@ -307,8 +350,21 @@
 			})
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.attr('opacity', (d: any) => (!q || d.data.name.toLowerCase().includes(q) ? 1 : 0.15))
-			.attr('stroke', (d: any) => (q && d.data.name.toLowerCase().includes(q) ? '#d97706' : '#fff'))
-			.attr('stroke-width', 1.5);
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			.attr('stroke', (d: any) => {
+				if (q && d.data.name.toLowerCase().includes(q)) return '#d97706'; // search match: amber
+				if (!hasChildren.has(d.data.id)) return '#fff';
+				const isExp = expanded.has(d.data.id) || searchAutoExpand.has(d.data.id);
+				return isExp ? '#7c3aed' : '#9ca3af'; // expanded: violet; collapsed-expandable: gray
+			})
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			.attr('stroke-dasharray', (d: any) => {
+				if (!hasChildren.has(d.data.id)) return null;
+				const isExp = expanded.has(d.data.id) || searchAutoExpand.has(d.data.id);
+				return isExp ? null : '3,2'; // dashed = has hidden children
+			})
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			.attr('stroke-width', (d: any) => (hasChildren.has(d.data.id) ? 2 : 1.5));
 
 		nodeG.append('title').text((d) => d.data.name);
 
@@ -344,24 +400,25 @@
 			});
 		});
 
-		// Refine fit after layout: getBBox returns local-space bounds (relative to g,
-		// not affected by g's translate transform), so we compute the best-fit scale
-		// and re-center. Tree is already visible from the synchronous translate above.
-		requestAnimationFrame(() => {
-			const bb = (g.node() as SVGGElement)?.getBBox();
-			if (!bb || (bb.width === 0 && bb.height === 0)) return;
-			const pad = 60;
-			const sc = Math.min(
-				bb.width > 0 ? (W - pad) / bb.width : 1,
-				bb.height > 0 ? (H - pad) / bb.height : 1,
-				1
-			);
-			// bb is in g's local space (around 0,0); map to SVG viewport center
-			const tx = W / 2 - (bb.x + bb.width / 2) * sc;
-			const ty = H / 2 - (bb.y + bb.height / 2) * sc;
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(svg as any).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(sc));
-		});
+		// Auto-fit on first render only; subsequent renders (expand/search) preserve
+		// the user's current zoom/pan position via savedTransform above.
+		if (isFirstRender) {
+			requestAnimationFrame(() => {
+				const bb = (g.node() as SVGGElement)?.getBBox();
+				if (!bb || (bb.width === 0 && bb.height === 0)) return;
+				const pad = 60;
+				const sc = Math.min(
+					bb.width > 0 ? (W - pad) / bb.width : 1,
+					bb.height > 0 ? (H - pad) / bb.height : 1,
+					1
+				);
+				// bb is in g's local space (around 0,0); map to SVG viewport center
+				const tx = W / 2 - (bb.x + bb.width / 2) * sc;
+				const ty = H / 2 - (bb.y + bb.height / 2) * sc;
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				(svg as any).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(sc));
+			});
+		}
 
 		return truncated;
 	}
@@ -653,7 +710,7 @@
 						<div class="flex items-center gap-2 min-w-0">
 							<h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 shrink-0">Hierarchy Map</h3>
 							<span class="text-xs text-gray-400 dark:text-gray-500 hidden sm:inline"
-								>scroll to zoom · drag to pan</span
+								>click node to expand · scroll to zoom · drag to pan</span
 							>
 						</div>
 						<div class="flex items-center gap-2 shrink-0">
