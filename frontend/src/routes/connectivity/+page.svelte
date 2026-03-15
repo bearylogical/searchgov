@@ -52,12 +52,14 @@
 		} catch { return null; }
 	}
 
-	// D3 node positions persisted across re-renders (so ministry update doesn't
-	// reset the simulation layout)
+	// Node positions persisted across D3 re-renders so ministry update is stable
 	const nodePositions = new Map<string, { x: number; y: number }>();
 
+	// Edge year-range cache: edgeKey → yearLabel
+	const edgeYearCache = new Map<string, string>();
+
 	// ---------------------------------------------------------------------------
-	// Person slot — one for source, one for target
+	// Person slot
 	// ---------------------------------------------------------------------------
 	interface PersonSlot {
 		selected: PersonResult | null;
@@ -118,7 +120,8 @@
 	function clearSlot(slot: PersonSlot) {
 		Object.assign(slot, makeSlot());
 		pathResult = null; pathError = ''; graphNodes = []; graphEdges = [];
-		ministryColorMap.clear(); nextPaletteIdx = 0; nodePositions.clear();
+		ministryColorMap.clear(); nextPaletteIdx = 0;
+		nodePositions.clear(); edgeYearCache.clear();
 	}
 
 	// ---------------------------------------------------------------------------
@@ -130,6 +133,12 @@
 		name: string;
 		/** Root ministry name (resolved async) */
 		ministry?: string;
+		/** Immediate agency name when this org node is NOT a ministry root */
+		agencyName?: string;
+		/** True when this org node IS the root (ministry-level) */
+		isMinistry?: boolean;
+		/** Most recent role/rank (person nodes) */
+		role?: string;
 		person_id?: number;
 		org_id?: number;
 		inPath: boolean;
@@ -142,6 +151,8 @@
 		source: string | GNode;
 		target: string | GNode;
 		inPath: boolean;
+		/** "YYYY–YYYY" annotation shown on path edges */
+		yearLabel?: string;
 	}
 
 	let graphNodes  = $state<GNode[]>([]);
@@ -152,9 +163,32 @@
 	let temporal    = $state(true);
 
 	// Hover tooltip
-	let hoveredNode = $state<GNode | null>(null);
+	let hoveredNode  = $state<GNode | null>(null);
 	let hoverClientX = $state(0);
 	let hoverClientY = $state(0);
+
+	// ---------------------------------------------------------------------------
+	// Helpers
+	// ---------------------------------------------------------------------------
+	function edgeEndpointId(ep: string | GNode): string {
+		return typeof ep === 'string' ? ep : ep.id;
+	}
+
+	function latestRole(profile?: EmploymentEntry[]): string | null {
+		if (!profile?.length) return null;
+		const sorted = [...profile].sort((a, b) => {
+			if (!a.start_date) return 1; if (!b.start_date) return -1;
+			return b.start_date.localeCompare(a.start_date);
+		});
+		return sorted[0].rank ?? null;
+	}
+
+	function yearRangeLabel(entry?: EmploymentEntry): string | undefined {
+		if (!entry?.start_date) return undefined;
+		const start = entry.start_date.slice(0, 4);
+		const end   = entry.end_date?.slice(0, 4) ?? 'now';
+		return `${start}–${end}`;
+	}
 
 	// ---------------------------------------------------------------------------
 	// Path finding
@@ -175,25 +209,37 @@
 	function buildGraphFromPath(nodes: PathNode[]) {
 		const sourceId = source.selected?.id;
 		const targetId = target.selected?.id;
+
 		graphNodes = nodes.map(n => ({
 			id: n.node_id,
 			type: n.node_type === 'person' ? 'person' : 'org',
 			name: n.name,
 			person_id: n.person_id,
 			org_id: n.org_id,
+			role: n.node_type === 'person' ? (latestRole(n.employment_profile) ?? undefined) : undefined,
 			inPath: true,
 			isSource: n.person_id === sourceId,
 			isTarget: n.person_id === targetId,
 			expanded: false
 		} satisfies GNode));
-		graphEdges = nodes.slice(0, -1).map((n, i) => ({
-			source: n.node_id,
-			target: nodes[i + 1].node_id,
-			inPath: true
-		}));
+
+		graphEdges = nodes.slice(0, -1).map((n, i) => {
+			const next = nodes[i + 1];
+			let yearLabel: string | undefined;
+
+			if (n.node_type === 'person' && next.node_type === 'organization') {
+				const entry = n.employment_profile?.find(e => e.org_id === next.org_id);
+				yearLabel = yearRangeLabel(entry);
+			} else if (n.node_type === 'organization' && next.node_type === 'person') {
+				const entry = next.employment_profile?.find(e => e.org_id === n.org_id);
+				yearLabel = yearRangeLabel(entry);
+			}
+
+			return { source: n.node_id, target: next.node_id, inPath: true, yearLabel };
+		});
 	}
 
-	/** Async: resolve root ministry for all org nodes, patch graphNodes to trigger re-render */
+	/** Async: resolve root ministry for all org nodes, then patch graphNodes */
 	async function resolveMinistries() {
 		const orgNodes = graphNodes.filter(n => n.type === 'org' && n.org_id != null);
 		if (!orgNodes.length) return;
@@ -201,24 +247,32 @@
 		const resolved = await Promise.all(
 			orgNodes.map(async n => {
 				const root = await fetchRootMinistry(n.org_id!);
-				return { id: n.id, ministry: root?.name ?? n.name };
+				return { id: n.id, orgName: n.name, rootName: root?.name ?? n.name };
 			})
 		);
 
-		// Pre-assign palette colours so the order is deterministic
-		for (const r of resolved) getMinistryColor(r.ministry);
+		for (const r of resolved) getMinistryColor(r.rootName);
 
-		const patchMap = new Map(resolved.map(r => [r.id, r.ministry]));
+		const patchMap = new Map(resolved.map(r => [r.id, r]));
 
 		graphNodes = graphNodes.map(n => {
-			if (patchMap.has(n.id)) return { ...n, ministry: patchMap.get(n.id) };
+			if (patchMap.has(n.id)) {
+				const { orgName, rootName } = patchMap.get(n.id)!;
+				const isMinistry = orgName === rootName;
+				return {
+					...n,
+					ministry:    rootName,
+					agencyName:  isMinistry ? undefined : orgName,
+					isMinistry
+				};
+			}
 			// Propagate ministry to adjacent person nodes
 			if (n.type === 'person') {
 				for (const e of graphEdges) {
-					const s = typeof e.source === 'string' ? e.source : (e.source as GNode).id;
-					const t = typeof e.target === 'string' ? e.target : (e.target as GNode).id;
-					if (s === n.id && patchMap.has(t)) return { ...n, ministry: patchMap.get(t) };
-					if (t === n.id && patchMap.has(s)) return { ...n, ministry: patchMap.get(s) };
+					const s = edgeEndpointId(e.source);
+					const t = edgeEndpointId(e.target);
+					if (s === n.id && patchMap.has(t)) return { ...n, ministry: patchMap.get(t)!.rootName };
+					if (t === n.id && patchMap.has(s)) return { ...n, ministry: patchMap.get(s)!.rootName };
 				}
 			}
 			return n;
@@ -244,8 +298,7 @@
 		const existingIds = new Set(graphNodes.map(n => n.id));
 		const toAddNodes: GNode[] = [];
 		const toAddEdges: GEdge[] = [];
-		const anchorX = nodePositions.get(node.id)?.x ?? 0;
-		const anchorY = nodePositions.get(node.id)?.y ?? 0;
+		const anchor = nodePositions.get(node.id) ?? { x: 0, y: 0 };
 
 		for (const colleague of deg1) {
 			const pId = `person_${colleague.id}`;
@@ -254,8 +307,8 @@
 					id: pId, type: 'person', name: colleague.name,
 					person_id: colleague.id, inPath: false,
 					isSource: false, isTarget: false, expanded: false,
-					x: anchorX + (Math.random() - 0.5) * 80,
-					y: anchorY + (Math.random() - 0.5) * 80
+					x: anchor.x + (Math.random() - 0.5) * 80,
+					y: anchor.y + (Math.random() - 0.5) * 80
 				});
 				existingIds.add(pId);
 			}
@@ -263,22 +316,20 @@
 				const oId = `org_${orgId}`;
 				if (!existingIds.has(oId)) {
 					toAddNodes.push({
-						id: oId, type: 'org', name: `Org ${orgId}`,
-						org_id: orgId, inPath: false,
-						isSource: false, isTarget: false, expanded: false,
-						x: anchorX + (Math.random() - 0.5) * 100,
-						y: anchorY + (Math.random() - 0.5) * 100
+						id: oId, type: 'org', name: `Org ${orgId}`, org_id: orgId,
+						inPath: false, isSource: false, isTarget: false, expanded: false,
+						x: anchor.x + (Math.random() - 0.5) * 100,
+						y: anchor.y + (Math.random() - 0.5) * 100
 					});
 					existingIds.add(oId);
 				}
 				const edgeExists = (a: string, b: string) =>
 					graphEdges.some(e => {
-						const s = typeof e.source === 'string' ? e.source : (e.source as GNode).id;
-						const t = typeof e.target === 'string' ? e.target : (e.target as GNode).id;
+						const s = edgeEndpointId(e.source); const t = edgeEndpointId(e.target);
 						return (s === a && t === b) || (s === b && t === a);
 					});
 				if (!edgeExists(node.id, oId)) toAddEdges.push({ source: node.id, target: oId, inPath: false });
-				if (!edgeExists(pId, oId))     toAddEdges.push({ source: pId,     target: oId, inPath: false });
+				if (!edgeExists(pId,     oId)) toAddEdges.push({ source: pId,     target: oId, inPath: false });
 			}
 		}
 
@@ -323,14 +374,19 @@
 		return d.inPath ? '#6366f1' : '#94a3b8';
 	}
 
+	function orgFill(d: GNode): string {
+		return d.ministry ? getMinistryColor(d.ministry) : (d.inPath ? '#6366f1' : '#94a3b8');
+	}
+
 	function renderD3() {
 		if (!svgEl) return;
 		const svg = d3.select(svgEl);
 		svg.selectAll('*').remove();
 
-		// Defs
+		// Defs: drop shadow
 		const defs = svg.append('defs');
-		const shadow = defs.append('filter').attr('id', 'node-shadow').attr('x', '-20%').attr('y', '-20%').attr('width', '140%').attr('height', '140%');
+		const shadow = defs.append('filter')
+			.attr('id', 'node-shadow').attr('x', '-20%').attr('y', '-20%').attr('width', '140%').attr('height', '140%');
 		shadow.append('feDropShadow').attr('dx', 0).attr('dy', 1).attr('stdDeviation', 2).attr('flood-opacity', 0.18);
 
 		const g = svg.append('g');
@@ -341,45 +397,62 @@
 				.on('zoom', e => g.attr('transform', e.transform))
 		);
 
-		// Use stored positions for existing nodes (prevents layout reset on ministry update)
+		// Deep-copy with stored positions
 		const simNodes: GNode[] = graphNodes.map(n => ({
 			...n,
 			x: nodePositions.get(n.id)?.x,
 			y: nodePositions.get(n.id)?.y
 		}));
 		const simEdges: GEdge[] = graphEdges.map(e => ({
-			source: typeof e.source === 'string' ? e.source : (e.source as GNode).id,
-			target: typeof e.target === 'string' ? e.target : (e.target as GNode).id,
-			inPath: e.inPath
+			source: edgeEndpointId(e.source),
+			target: edgeEndpointId(e.target),
+			inPath: e.inPath,
+			yearLabel: e.yearLabel
 		}));
 
-		// Lower alpha for re-renders with existing positions (ministry update)
-		const hasExistingPositions = simNodes.some(n => n.x != null);
+		const hasPositions = simNodes.some(n => n.x != null);
 
 		simulation = d3.forceSimulation<GNode>(simNodes)
-			.alpha(hasExistingPositions ? 0.15 : 1)
-			.force('link', d3.forceLink<GNode, GEdge>(simEdges).id(d => d.id).distance(d => d.inPath ? 150 : 100))
-			.force('charge', d3.forceManyBody().strength(-420))
-			.force('center', d3.forceCenter(svgWidth / 2, svgHeight / 2))
-			.force('collide', d3.forceCollide<GNode>(d => nodeRadius(d) + 12));
+			.alpha(hasPositions ? 0.15 : 1)
+			.force('link',    d3.forceLink<GNode, GEdge>(simEdges).id(d => d.id).distance(d => d.inPath ? 155 : 100))
+			.force('charge',  d3.forceManyBody().strength(-440))
+			.force('center',  d3.forceCenter(svgWidth / 2, svgHeight / 2))
+			.force('collide', d3.forceCollide<GNode>(d => nodeRadius(d) + 14));
 
-		// ── Edges ──────────────────────────────────────────
-		const link = g.append('g')
+		// ── Links ──────────────────────────────────────────
+		const link = g.append('g').attr('class', 'links')
 			.selectAll<SVGLineElement, GEdge>('line')
 			.data(simEdges)
 			.join('line')
-			.attr('stroke', d => d.inPath ? '#818cf8' : '#cbd5e1')
-			.attr('stroke-width', d => d.inPath ? 2.5 : 1.2)
-			.attr('stroke-dasharray', d => d.inPath ? null : '5,4')
-			.attr('opacity', d => d.inPath ? 1 : 0.45);
+			.attr('stroke',          d => d.inPath ? '#818cf8' : '#cbd5e1')
+			.attr('stroke-width',    d => d.inPath ? 2.5 : 1.2)
+			.attr('stroke-dasharray',d => d.inPath ? null : '5,4')
+			.attr('opacity',         d => d.inPath ? 1 : 0.45);
 
-		// ── Nodes ──────────────────────────────────────────
+		// ── Edge year labels ───────────────────────────────
+		const edgeLabel = g.append('g').attr('class', 'edge-labels')
+			.selectAll<SVGTextElement, GEdge>('text')
+			.data(simEdges.filter(e => e.yearLabel))
+			.join('text')
+			.attr('text-anchor', 'middle')
+			.attr('font-size', '10px')
+			.attr('font-weight', '500')
+			.attr('fill', '#6366f1')
+			// White halo for readability over the edge line
+			.style('paint-order', 'stroke')
+			.attr('stroke', 'white')
+			.attr('stroke-width', 3)
+			.attr('stroke-linejoin', 'round')
+			.attr('pointer-events', 'none')
+			.text(d => d.yearLabel!);
+
+		// ── Node groups ────────────────────────────────────
 		const drag = d3.drag<SVGGElement, GNode>()
 			.on('start', (event, d) => { if (!event.active) simulation?.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
 			.on('drag',  (event, d) => { d.fx = event.x; d.fy = event.y; })
 			.on('end',   (event, d) => { if (!event.active) simulation?.alphaTarget(0); d.fx = null; d.fy = null; });
 
-		const node = g.append('g')
+		const node = g.append('g').attr('class', 'nodes')
 			.selectAll<SVGGElement, GNode>('g')
 			.data(simNodes)
 			.join('g')
@@ -387,7 +460,7 @@
 			.call(drag)
 			.on('click', (_e, d) => { if (d.type === 'person') openModal(d); })
 			.on('mouseover', (event, d) => {
-				hoveredNode = { ...d };
+				hoveredNode  = { ...d };
 				hoverClientX = event.clientX;
 				hoverClientY = event.clientY;
 			})
@@ -400,57 +473,78 @@
 		// ── Person circles ─────────────────────────────────
 		const personNodes = node.filter(d => d.type === 'person');
 
-		// Outer accent ring (source/target)
+		// Outer accent ring (source = solid, target = dashed)
 		personNodes.filter(d => d.isSource || d.isTarget)
 			.append('circle')
-			.attr('r', d => nodeRadius(d) + 6)
-			.attr('fill', 'none')
-			.attr('stroke', d => d.isSource ? '#2563eb' : '#059669')
-			.attr('stroke-width', 2.5)
+			.attr('r',              d => nodeRadius(d) + 6)
+			.attr('fill',           'none')
+			.attr('stroke',         d => d.isSource ? '#2563eb' : '#059669')
+			.attr('stroke-width',   2.5)
 			.attr('stroke-dasharray', d => d.isSource ? null : '6,3')
-			.attr('opacity', 0.5);
+			.attr('opacity',        0.5);
 
-		// Main circle
 		personNodes.append('circle')
-			.attr('r', nodeRadius)
-			.attr('fill', personFill)
-			.attr('stroke', d => d.expanded ? '#fbbf24' : 'white')
+			.attr('r',            nodeRadius)
+			.attr('fill',         personFill)
+			.attr('stroke',       d => d.expanded ? '#fbbf24' : 'white')
 			.attr('stroke-width', d => d.expanded ? 3 : 2)
-			.attr('filter', 'url(#node-shadow)');
+			.attr('filter',       'url(#node-shadow)');
 
-		// Initials
 		personNodes.append('text')
 			.attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
 			.attr('fill', 'white').attr('font-size', '13px').attr('font-weight', '700')
 			.attr('letter-spacing', '0.5px').attr('pointer-events', 'none')
 			.text(d => d.name.slice(0, 2).toUpperCase());
 
-		// ── Org rectangles ─────────────────────────────────
+		// ── Org shapes — diamond for ministry, rect for agency ──
 		const orgNodes = node.filter(d => d.type === 'org');
 
-		orgNodes.append('rect')
-			.attr('x', -36).attr('y', -15).attr('width', 72).attr('height', 30).attr('rx', 8)
-			.attr('fill', d => d.ministry ? getMinistryColor(d.ministry) : (d.inPath ? '#6366f1' : '#94a3b8'))
-			.attr('stroke', 'white').attr('stroke-width', 1.5)
-			.attr('filter', 'url(#node-shadow)');
+		// Ministry: diamond (◆)
+		orgNodes.filter(d => !!d.isMinistry)
+			.append('polygon')
+			.attr('points', '0,-22 36,0 0,22 -36,0')
+			.attr('fill',         orgFill)
+			.attr('stroke',       'white')
+			.attr('stroke-width', 1.5)
+			.attr('filter',       'url(#node-shadow)');
 
-		// Ministry label inside rect
+		// Agency: rounded rect
+		orgNodes.filter(d => !d.isMinistry)
+			.append('rect')
+			.attr('x', -36).attr('y', -15).attr('width', 72).attr('height', 30).attr('rx', 8)
+			.attr('fill',         orgFill)
+			.attr('stroke',       'white')
+			.attr('stroke-width', 1.5)
+			.attr('filter',       'url(#node-shadow)');
+
+		// Label inside org shape: agency name (or ministry name if it is one)
 		orgNodes.append('text')
 			.attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
-			.attr('fill', 'white').attr('font-size', '10px').attr('font-weight', '600')
+			.attr('fill', 'white').attr('font-size', '9px').attr('font-weight', '600')
 			.attr('pointer-events', 'none')
-			.text(d => truncate(d.ministry ?? d.name, 11));
+			.text(d => truncate(d.agencyName ?? d.ministry ?? d.name, 11));
 
 		// ── Name labels below nodes ─────────────────────────
+		// For agency nodes: show ministry above the shape label
+		orgNodes.filter(d => !!d.agencyName && !!d.ministry)
+			.append('text')
+			.attr('text-anchor', 'middle')
+			.attr('y', -30)
+			.attr('fill', d => getMinistryColor(d.ministry!))
+			.attr('font-size', '9px').attr('font-weight', '600')
+			.attr('pointer-events', 'none')
+			.text(d => truncate(d.ministry!, 16));
+
+		// Full name below all nodes
 		node.append('text')
 			.attr('text-anchor', 'middle')
-			.attr('y', d => d.type === 'person' ? nodeRadius(d) + 17 : 30)
+			.attr('y', d => d.type === 'person' ? nodeRadius(d) + 17 : (d.isMinistry ? 32 : 28))
 			.attr('fill', '#1f2937').attr('font-size', '12px')
 			.attr('font-weight', d => (d.isSource || d.isTarget) ? '700' : '500')
 			.attr('pointer-events', 'none')
-			.text(d => truncate(d.name, d.type === 'org' ? 18 : 22));
+			.text(d => truncate(d.agencyName ?? d.name, d.type === 'org' ? 18 : 22));
 
-		// "Source" / "Target" annotation
+		// Source / Target label
 		personNodes.filter(d => d.isSource || d.isTarget)
 			.append('text')
 			.attr('text-anchor', 'middle')
@@ -462,13 +556,15 @@
 
 		// ── Tick ───────────────────────────────────────────
 		simulation.on('tick', () => {
-			// Persist positions for layout stability on re-render
 			simNodes.forEach(n => {
 				if (n.x != null && n.y != null) nodePositions.set(n.id, { x: n.x, y: n.y });
 			});
 			link
 				.attr('x1', d => (d.source as GNode).x ?? 0).attr('y1', d => (d.source as GNode).y ?? 0)
 				.attr('x2', d => (d.target as GNode).x ?? 0).attr('y2', d => (d.target as GNode).y ?? 0);
+			edgeLabel
+				.attr('x', d => (((d.source as GNode).x ?? 0) + ((d.target as GNode).x ?? 0)) / 2)
+				.attr('y', d => (((d.source as GNode).y ?? 0) + ((d.target as GNode).y ?? 0)) / 2 - 7);
 			node.attr('transform', d => `translate(${d.x ?? 0},${d.y ?? 0})`);
 		});
 	}
@@ -476,10 +572,10 @@
 	// ---------------------------------------------------------------------------
 	// Stats modal
 	// ---------------------------------------------------------------------------
-	let modalNode       = $state<GNode | null>(null);
-	let modalNetwork    = $state<ColleagueNetwork | null>(null);
-	let modalLoading    = $state(false);
-	let ministryCounts  = $state<{ ministry: string; count: number }[]>([]);
+	let modalNode      = $state<GNode | null>(null);
+	let modalNetwork   = $state<ColleagueNetwork | null>(null);
+	let modalLoading   = $state(false);
+	let ministryCounts = $state<{ ministry: string; count: number }[]>([]);
 
 	async function openModal(node: GNode) {
 		modalNode = node; modalNetwork = null; ministryCounts = []; modalLoading = true;
@@ -487,9 +583,9 @@
 			if (!node.person_id) return;
 			const net = await fetchPersonNetwork(node.person_id);
 			modalNetwork = net;
-			const deg1 = net.colleagues_by_degree['1'] ?? [];
+			const deg1   = net.colleagues_by_degree['1'] ?? [];
 			const orgIds = [...new Set(deg1.flatMap(c => c.shared_organizations))];
-			const roots = await Promise.all(orgIds.map(id => fetchRootMinistry(id)));
+			const roots  = await Promise.all(orgIds.map(id => fetchRootMinistry(id)));
 			const miniMap = new Map<string, number>();
 			for (const c of deg1) {
 				for (const oid of c.shared_organizations) {
@@ -525,6 +621,11 @@
 		[...new Set(graphNodes.map(n => n.ministry).filter(Boolean) as string[])]
 			.map(m => ({ ministry: m, color: getMinistryColor(m) }))
 	);
+
+	const connectionStats = $derived({
+		ministries: new Set(graphNodes.filter(n => n.inPath && n.ministry).map(n => n.ministry)).size,
+		agencies:   graphNodes.filter(n => n.inPath && n.type === 'org').length
+	});
 </script>
 
 <div class="flex-1 flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem - 49px)">
@@ -533,11 +634,10 @@
 	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r
 	              border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-y-auto">
 
-		<!-- Title + controls -->
 		<div class="p-4 border-b border-gray-100 dark:border-gray-800 space-y-3">
 			<div class="flex items-center justify-between">
 				<h1 class="text-base font-semibold text-gray-900 dark:text-gray-100">Connectivity Explorer</h1>
-				<InfoTip tip="Find the shortest connection path between two people. Click nodes to view stats and expand their network." />
+				<InfoTip tip="Find the shortest connection path between two people through shared organisations. Click any person node to view their network stats." />
 			</div>
 
 			<ConfidenceSlider bind:value={confidenceThreshold} />
@@ -549,7 +649,7 @@
 				<span class="text-sm text-gray-600 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 transition-colors">
 					Temporal (actual co-workers only)
 				</span>
-				<InfoTip tip="When on, only counts people who were physically working together at the same time. Turn off to find any historical connection." />
+				<InfoTip tip="When on, only finds connections where people were physically working together at the same time. Turn off to allow any historical connection." />
 			</label>
 		</div>
 
@@ -558,7 +658,7 @@
 			<div class="flex items-center gap-1.5">
 				<span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
 				<p class="text-sm font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Source</p>
-				<InfoTip tip="The person you're tracing the connection FROM. Name variants with scores above the threshold are included in the search." />
+				<InfoTip tip="The person you're tracing FROM. Drag variants between zones to fine-tune which name spellings are included in the search." />
 			</div>
 			<PersonSearch
 				placeholder="Search source person…"
@@ -574,6 +674,7 @@
 					activeNames={source.activeNames}
 					{confidenceThreshold}
 					inColor="blue"
+					careerData={source.career}
 					ontoggle={(name) => toggleVariant(source, name)}
 				/>
 			{/if}
@@ -584,7 +685,7 @@
 			<div class="flex items-center gap-1.5">
 				<span class="w-2.5 h-2.5 rounded-full border-2 border-dashed border-emerald-500 shrink-0"></span>
 				<p class="text-sm font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Target</p>
-				<InfoTip tip="The person you're tracing the connection TO. The graph shows how they are connected through shared organizations." />
+				<InfoTip tip="The person you're tracing TO. The graph shows the shortest path between Source and Target through shared organisations." />
 			</div>
 			<PersonSearch
 				placeholder="Search target person…"
@@ -600,6 +701,7 @@
 					activeNames={target.activeNames}
 					{confidenceThreshold}
 					inColor="emerald"
+					careerData={target.career}
 					ontoggle={(name) => toggleVariant(target, name)}
 				/>
 			{/if}
@@ -616,9 +718,9 @@
 	<!-- ── Right panel — D3 canvas ───────────────────────── -->
 	<section class="flex-1 relative flex flex-col bg-gray-50 dark:bg-gray-950 overflow-hidden">
 
-		<!-- Status badge -->
+		<!-- Status + stats badges -->
 		{#if pathResult || pathLoading || pathError}
-			<div class="absolute top-4 left-1/2 -translate-x-1/2 z-10">
+			<div class="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
 				{#if pathLoading}
 					<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
 					            rounded-full px-4 py-1.5 shadow-md text-sm text-gray-500 animate-pulse">
@@ -642,6 +744,23 @@
 							{degreeBadge === 1 ? '1 degree' : `${degreeBadge} degrees`} of separation
 						</span>
 					</div>
+					<!-- Connection summary -->
+					{#if connectionStats.agencies > 0}
+						<div class="flex items-center gap-2">
+							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
+							            rounded-full px-3 py-1 shadow-sm flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+								<span class="font-semibold text-gray-800 dark:text-gray-200">{connectionStats.agencies}</span>
+								{connectionStats.agencies === 1 ? 'agency' : 'agencies'}
+							</div>
+							{#if connectionStats.ministries > 0}
+								<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
+								            rounded-full px-3 py-1 shadow-sm flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+									<span class="font-semibold text-gray-800 dark:text-gray-200">{connectionStats.ministries}</span>
+									{connectionStats.ministries === 1 ? 'ministry' : 'ministries'}
+								</div>
+							{/if}
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}
@@ -668,11 +787,14 @@
 
 		<svg bind:this={svgEl} class="w-full h-full" style="touch-action: none;"></svg>
 
-		<!-- Ministry legend -->
+		<!-- Legend -->
 		{#if ministryLegend.length > 0}
 			<div class="absolute bottom-4 left-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-			            rounded-xl px-3 py-2.5 shadow-sm max-w-[180px]">
-				<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Ministry</p>
+			            rounded-xl px-3 py-2.5 shadow-sm max-w-[200px] space-y-2">
+				<div class="flex items-center gap-1.5">
+					<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Ministry</p>
+					<InfoTip tip="◆ diamond = ministry (root). ▬ rect = agency under that ministry. Colours match across the graph." />
+				</div>
 				<ul class="space-y-1.5">
 					{#each ministryLegend as item}
 						<li class="flex items-center gap-2">
@@ -684,12 +806,11 @@
 			</div>
 		{/if}
 
-		<!-- Hint -->
 		{#if graphNodes.length > 0}
 			<div class="absolute bottom-4 right-4 text-xs text-gray-400 dark:text-gray-600
 			            bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
 			            rounded-lg px-3 py-2 shadow-sm">
-				Click a person to view network stats · Scroll to zoom · Drag to pan
+				Click person · Scroll to zoom · Drag to pan
 			</div>
 		{/if}
 	</section>
@@ -697,25 +818,68 @@
 
 <!-- ── Hover tooltip ─────────────────────────────────── -->
 {#if hoveredNode}
+	{@const adjOrgs = graphEdges
+		.filter(e => edgeEndpointId(e.source) === hoveredNode!.id || edgeEndpointId(e.target) === hoveredNode!.id)
+		.map(e => {
+			const otherId = edgeEndpointId(e.source) === hoveredNode!.id
+				? edgeEndpointId(e.target) : edgeEndpointId(e.source);
+			return graphNodes.find(n => n.id === otherId && n.type === 'org');
+		})
+		.filter((n): n is GNode => n != null)}
 	<div
-		class="fixed z-30 pointer-events-none max-w-56 rounded-xl border border-gray-200 dark:border-gray-700
-		       bg-white dark:bg-gray-900 shadow-xl px-3.5 py-2.5 space-y-1"
-		style="left: {hoverClientX + 14}px; top: {hoverClientY - 60}px;"
+		class="fixed z-30 pointer-events-none max-w-60 rounded-xl border border-gray-200 dark:border-gray-700
+		       bg-white dark:bg-gray-900 shadow-xl px-3.5 py-2.5 space-y-1.5"
+		style="left: {hoverClientX + 14}px; top: {hoverClientY - 70}px;"
 	>
 		<p class="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{hoveredNode.name}</p>
-		{#if hoveredNode.ministry}
-			<div class="flex items-center gap-1.5">
-				<span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}"></span>
-				<p class="text-xs text-gray-500 dark:text-gray-400 leading-snug">{hoveredNode.ministry}</p>
-			</div>
-		{/if}
-		{#if hoveredNode.type === 'person'}
+
+		{#if hoveredNode.type === 'org'}
+			<!-- Org tooltip -->
+			{#if hoveredNode.agencyName && hoveredNode.ministry}
+				<div class="space-y-0.5">
+					<div class="flex items-center gap-1.5">
+						<span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}"></span>
+						<p class="text-xs font-medium text-gray-700 dark:text-gray-300">{hoveredNode.ministry}</p>
+					</div>
+					<p class="text-xs text-gray-400 pl-4">↳ {hoveredNode.agencyName}</p>
+				</div>
+				<p class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Agency</p>
+			{:else if hoveredNode.ministry}
+				<div class="flex items-center gap-1.5">
+					<span class="w-2.5 h-2.5 rotate-45 shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}"></span>
+					<p class="text-xs text-gray-500 dark:text-gray-400">{hoveredNode.ministry}</p>
+				</div>
+				<p class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Ministry</p>
+			{/if}
+		{:else}
+			<!-- Person tooltip -->
+			{#if hoveredNode.role}
+				<p class="text-xs text-gray-600 dark:text-gray-400">{hoveredNode.role}</p>
+			{/if}
+			{#if hoveredNode.ministry}
+				<div class="flex items-center gap-1.5">
+					<span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}"></span>
+					<p class="text-xs text-gray-500 dark:text-gray-400">{hoveredNode.ministry}</p>
+				</div>
+			{/if}
+			{#if adjOrgs.length > 0}
+				<div class="border-t border-gray-100 dark:border-gray-800 pt-1.5">
+					<p class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1">Connected through</p>
+					<ul class="space-y-0.5">
+						{#each adjOrgs as org}
+							<li class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+								<span class="w-2 h-2 rounded-sm shrink-0"
+								      style="background: {org.ministry ? getMinistryColor(org.ministry) : '#94a3b8'}"></span>
+								<span class="truncate">{org.agencyName ?? org.ministry ?? org.name}</span>
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 			<p class="text-xs text-gray-400 dark:text-gray-500">
 				{hoveredNode.isSource ? '▲ Source' : hoveredNode.isTarget ? '▼ Target' : hoveredNode.inPath ? 'Path node' : 'Expanded'}
-				{hoveredNode.type === 'person' ? '· Click for stats' : ''}
+				· Click for stats
 			</p>
-		{:else}
-			<p class="text-xs text-gray-400 dark:text-gray-500">Organisation node</p>
 		{/if}
 	</div>
 {/if}
@@ -732,7 +896,6 @@
 	            w-full max-w-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
 	            rounded-2xl shadow-2xl p-6 space-y-4">
 
-		<!-- Header -->
 		<div class="flex items-start justify-between gap-3">
 			<div class="flex items-center gap-3">
 				<div class="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
@@ -741,15 +904,14 @@
 				</div>
 				<div>
 					<h2 class="font-semibold text-gray-900 dark:text-gray-100 text-base">{modalNode.name}</h2>
+					{#if modalNode.role}
+						<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{modalNode.role}</p>
+					{/if}
 					{#if modalNode.ministry}
 						<div class="flex items-center gap-1.5 mt-0.5">
 							<span class="w-2 h-2 rounded-sm" style="background: {getMinistryColor(modalNode.ministry)}"></span>
 							<p class="text-xs text-gray-500 dark:text-gray-400">{modalNode.ministry}</p>
 						</div>
-					{:else}
-						<p class="text-xs {modalNode.isSource ? 'text-blue-500' : modalNode.isTarget ? 'text-emerald-500' : 'text-gray-400'}">
-							{modalNode.isSource ? '▲ Source' : modalNode.isTarget ? '▼ Target' : modalNode.inPath ? 'In path' : 'Expanded node'}
-						</p>
 					{/if}
 				</div>
 			</div>
