@@ -5,7 +5,7 @@ from src.services.query import QueryService
 from src.services.organisations import OrganisationService
 from loguru import logger
 from itertools import combinations
-from collections import defaultdict
+from collections import defaultdict, deque
 
 _MAX_DATE = date_type.max  # sentinel for open-ended employment
 
@@ -79,14 +79,26 @@ class GraphService:
                     node1 = f"person_{p1_id}"
                     node2 = f"person_{p2_id}"
 
-                    # We can store the org as an attribute for more context
+                    # Compute the actual overlap window
+                    overlap_start = max(
+                        p1_record["start_date"], p2_record["start_date"]
+                    )
+                    overlap_end = min(p1_end, p2_end)
+                    overlap_info = {
+                        "org_id": org_id,
+                        "overlap_start": overlap_start,
+                        "overlap_end": overlap_end,
+                    }
+
                     if G_colleagues.has_edge(node1, node2):
-                        # If they were colleagues at multiple orgs, add to the list
-                        G_colleagues.edges[node1, node2]["orgs"].append(
-                            org_id
-                        )
+                        # Multiple orgs — append overlap info
+                        G_colleagues.edges[node1, node2][
+                            "overlaps"
+                        ].append(overlap_info)
                     else:
-                        G_colleagues.add_edge(node1, node2, orgs=[org_id])
+                        G_colleagues.add_edge(
+                            node1, node2, overlaps=[overlap_info]
+                        )
 
         self.logger.info(
             f"Colleague graph built with {G_colleagues.number_of_nodes()} nodes and {G_colleagues.number_of_edges()} edges."
@@ -325,6 +337,73 @@ class GraphService:
 
             return path_names
 
+    def _bfs_backwards_temporal(
+        self,
+        G: nx.Graph,
+        source: str,
+        target: str,
+    ):
+        """
+        BFS that finds the shortest colleague path going strictly backwards
+        in time.  At each hop the chosen overlap must end *at or before* the
+        time boundary inherited from the previous hop, so the chain of
+        connections walks from the present back into the past.
+
+        Returns:
+            (path, chosen_overlaps) where path is a list of person node IDs
+            and chosen_overlaps is a parallel list of overlap dicts used on
+            each edge, or (None, None) when no valid path exists.
+        """
+        if source == target:
+            return [source], []
+
+        # Queue items: (current_node, time_boundary, path, overlaps_used)
+        queue: deque = deque(
+            [(source, _MAX_DATE, [source], [])]
+        )
+        # Track the latest time_boundary at which each node was first
+        # reached.  We only enqueue a node again if we reach it at a
+        # *strictly later* boundary (more future options), which in
+        # practice never happens with a FIFO BFS + greedy-latest-overlap.
+        visited: dict = {source: _MAX_DATE}
+
+        while queue:
+            current, T, path, ovs = queue.popleft()
+
+            for neighbor in G.neighbors(current):
+                edge = G.edges[current, neighbor]
+
+                # Pick the overlap whose end date is the latest that still
+                # fits within the current time boundary (backwards).
+                best_ov = None
+                for ov in edge.get("overlaps", []):
+                    if ov["overlap_end"] <= T:
+                        if (
+                            best_ov is None
+                            or ov["overlap_end"] > best_ov["overlap_end"]
+                        ):
+                            best_ov = ov
+
+                if best_ov is None:
+                    continue  # no valid backwards edge to this neighbour
+
+                new_path = path + [neighbor]
+                new_ovs = ovs + [best_ov]
+
+                if neighbor == target:
+                    return new_path, new_ovs
+
+                prev_T = visited.get(neighbor)
+                # Only enqueue if we haven't visited, or if we can reach
+                # this node with a later boundary (better for future hops).
+                if prev_T is None or best_ov["overlap_end"] > prev_T:
+                    visited[neighbor] = best_ov["overlap_end"]
+                    queue.append(
+                        (neighbor, best_ov["overlap_end"], new_path, new_ovs)
+                    )
+
+        return None, None
+
     async def find_shortest_temporal_path(
         self,
         person1_ids: Union[int, List[int]],
@@ -374,43 +453,39 @@ class GraphService:
                 f"Sources given: {source_ids_int}, Targets given: {target_ids_int}"
             )
             return []
-        # Step 4: Find the shortest path among all possible pairs
+        # Step 4: Find the shortest backwards-temporal path among all pairs
         shortest_person_path_ids = None
+        shortest_chosen_overlaps = None
 
-        # ... (This logic is identical to the previous version) ...
         for source_node in valid_source_nodes:
             for target_node in valid_target_nodes:
                 if source_node == target_node:
                     if shortest_person_path_ids is None:
                         shortest_person_path_ids = [source_node]
+                        shortest_chosen_overlaps = []
                     continue
-                try:
-                    current_path_ids = nx.shortest_path(
-                        colleague_G, source=source_node, target=target_node
-                    )
-                    if shortest_person_path_ids is None or len(
-                        current_path_ids
-                    ) < len(shortest_person_path_ids):
-                        shortest_person_path_ids = current_path_ids
-                except nx.NetworkXNoPath:
-                    continue
-                except Exception as e:
-                    self.logger.error(
-                        f"Error finding temporal path for ({source_node}, {target_node}): {e}"
-                    )
-                    continue
+                path, chosen_ovs = self._bfs_backwards_temporal(
+                    colleague_G, source_node, target_node
+                )
+                if path is not None and (
+                    shortest_person_path_ids is None
+                    or len(path) < len(shortest_person_path_ids)
+                ):
+                    shortest_person_path_ids = path
+                    shortest_chosen_overlaps = chosen_ovs
 
         # Step 5: If a path was found, convert IDs to names
         if not shortest_person_path_ids:
             self.logger.info(
-                f"No valid temporal path found between any of {valid_source_nodes} and any of {valid_target_nodes}."
+                f"No valid temporal path found between any of "
+                f"{valid_source_nodes} and any of {valid_target_nodes}."
             )
             return []
 
-        # Step 4: Build a structured representation of the full path
+        # Step 6: Build a structured representation of the full path,
+        #         weaving in the connecting org at each hop.
         structured_path = []
 
-        # Helper to safely parse the integer ID from a prefixed node ID
         def get_int_id(prefixed_id):
             return int(prefixed_id.split("_")[1])
 
@@ -418,16 +493,24 @@ class GraphService:
         first_person_id = get_int_id(shortest_person_path_ids[0])
         structured_path.append({"type": "person", "id": first_person_id})
 
-        # If path is longer than one person, weave in the orgs
+        # Weave org nodes between consecutive people using the overlap
+        # that was actually chosen by the backwards-temporal BFS.
         if len(shortest_person_path_ids) > 1:
             for i in range(len(shortest_person_path_ids) - 1):
-                p1_node_id = shortest_person_path_ids[i]
-                p2_node_id = shortest_person_path_ids[i + 1]
+                chosen_ov = (shortest_chosen_overlaps or [])[i] if (
+                    shortest_chosen_overlaps
+                ) else None
+                if chosen_ov:
+                    connecting_org_id = chosen_ov["org_id"]
+                else:
+                    # Fallback: use first overlap on edge
+                    edge_data = colleague_G.edges[
+                        shortest_person_path_ids[i],
+                        shortest_person_path_ids[i + 1],
+                    ]
+                    connecting_org_id = edge_data["overlaps"][0]["org_id"]
 
-                edge_data = colleague_G.edges[p1_node_id, p2_node_id]
-                connecting_org_id = edge_data["orgs"][0]
-                p2_id = get_int_id(p2_node_id)
-
+                p2_id = get_int_id(shortest_person_path_ids[i + 1])
                 structured_path.append(
                     {"type": "org", "id": connecting_org_id}
                 )
@@ -732,7 +815,10 @@ class GraphService:
 
                             # Get shared organizations with the connecting node
                             edge_data = colleague_G.edges[node, neighbor]
-                            shared_orgs = edge_data.get("orgs", [])
+                            shared_orgs = [
+                                ov["org_id"]
+                                for ov in edge_data.get("overlaps", [])
+                            ]
 
                             # Determine connection path
                             connection_through = "direct"
