@@ -16,6 +16,7 @@
 	import NameVariantZones from '$lib/components/NameVariantZones.svelte';
 	import ConfidenceSlider from '$lib/components/ConfidenceSlider.svelte';
 	import InfoTip from '$lib/components/InfoTip.svelte';
+	import PathTimeline from '$lib/components/PathTimeline.svelte';
 
 	$effect(() => {
 		if ($authReady && !$isAuthenticated) goto('/login?redirect=/connectivity');
@@ -910,72 +911,17 @@
 				</div>
 				{/if}
 			</div>
-			<!-- Graph controls -->
-			<div class="flex gap-1.5 shrink-0">
-				<button onclick={resetGraph} class="pt-button pt-button-outlined">↺ Reset</button>
-				<button onclick={expandAllNodes} disabled={expandingAll} class="pt-button pt-button-outlined disabled:opacity-50 disabled:cursor-not-allowed">
-					{expandingAll ? '⏳ Expanding…' : '⊕ Expand All'}
-				</button>
-				<button onclick={collapseExpanded} disabled={!graphNodes.some(n => !n.inPath)}
-					class="pt-button pt-button-outlined disabled:opacity-40 disabled:cursor-not-allowed">
-					⊖ Collapse
-				</button>
-			</div>
+		<!-- Reset control -->
+		<div class="flex gap-1.5 shrink-0">
+			<button onclick={resetGraph} class="pt-button pt-button-outlined">↺ Reset</button>
 		</div>
-	{/if}
+	</div>
+{/if}
 
-	<!-- ── Row 4: D3 canvas (clean — no overlay widgets) ── -->
-	<section class="flex-1 relative overflow-hidden min-h-[35vh]"
-	         style="background: var(--pt-bg-0);">
-
-		<!-- Empty state -->
-		{#if graphNodes.length === 0 && !pathLoading}
-			<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-				<div class="text-center space-y-2">
-					<svg class="w-12 h-12 mx-auto" style="color: var(--pt-border);" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
-					</svg>
-					{#if !source.selected && !target.selected}
-						<p class="text-sm" style="color: var(--pt-text-muted);">Search for two people to find their connection</p>
-					{:else if source.selected && !target.selected}
-						<p class="text-sm" style="color: var(--pt-text-muted);">Now search for a target person</p>
-					{:else if !source.selected && target.selected}
-						<p class="text-sm" style="color: var(--pt-text-muted);">Now search for a source person</p>
-					{:else}
-						<p class="text-sm" style="color: var(--pt-text-muted);">Click "Find Connection" to search</p>
-					{/if}
-				</div>
-			</div>
-		{/if}
-
-		<svg bind:this={svgEl} class="w-full h-full" style="display: block; touch-action: none;"></svg>
-
-		<!-- Legend -->
-		{#if ministryLegend.length > 0}
-			<div class="absolute bottom-3 left-3 max-w-[180px] space-y-1.5 p-2.5"
-			     style="background: var(--pt-bg-1); border: 1px solid var(--pt-border); border-radius: 2px;">
-				<div class="flex items-center gap-1">
-					<p class="pt-label">Ministry</p>
-					<InfoTip tip="◆ diamond = ministry (root). ▬ rect = agency. Colours match across the graph." />
-				</div>
-				<ul class="space-y-1">
-					{#each ministryLegend as item}
-						<li class="flex items-center gap-1.5">
-							<span class="w-2.5 h-2.5 shrink-0" style="background: {item.color}; border-radius: 1px;"></span>
-							<span class="text-sm truncate" style="color: var(--pt-text-secondary);">{item.ministry}</span>
-						</li>
-					{/each}
-				</ul>
-			</div>
-		{/if}
-
-		{#if graphNodes.length > 0}
-			<div class="absolute bottom-3 right-3 text-sm px-2.5 py-1.5 hidden sm:block"
-			     style="color: var(--pt-text-muted); background: var(--pt-bg-1); border: 1px solid var(--pt-border); border-radius: 2px;">
-				Click person · Scroll to zoom · Drag to pan
-			</div>
-		{/if}
-	</section>
+<!-- ── Row 4: Timeline visualization ─────────── -->
+<div class="flex-1 min-h-[35vh] overflow-hidden">
+	<PathTimeline nodes={graphNodes} edges={graphEdges} {getMinistryColor} />
+</div>
 </div>
 
 <!-- ── Hover tooltip ─────────────────────────────────── -->
