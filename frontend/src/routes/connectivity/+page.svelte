@@ -89,6 +89,35 @@
 	let target = $state<PersonSlot>(makeSlot());
 	let confidenceThreshold = $state(95);
 
+	// Panel collapse — auto-collapses when a result arrives
+	let panelCollapsed = $state(false);
+	$effect(() => {
+		if (pathResult && pathResult.nodes.length > 0) panelCollapsed = true;
+	});
+
+	// Loading messages — cycle while path search is in progress
+	const LOADING_MSGS = [
+		'Traversing the civil service network…',
+		'Mapping career trajectories across ministries…',
+		'Following the paper trail…',
+		'Analysing shared appointments and overlaps…',
+		'Connecting the dots between agencies…',
+		'Consulting the organisational chart…',
+	];
+	let loadingMsgIdx = $state(0);
+	let _msgTimer: ReturnType<typeof setInterval> | undefined;
+	$effect(() => {
+		if (pathLoading) {
+			loadingMsgIdx = 0;
+			_msgTimer = setInterval(() => {
+				loadingMsgIdx = (loadingMsgIdx + 1) % LOADING_MSGS.length;
+			}, 2200);
+		} else {
+			clearInterval(_msgTimer);
+		}
+		return () => clearInterval(_msgTimer);
+	});
+
 	function activeIds(slot: PersonSlot): number[] {
 		const ids = new Set<number>();
 		if (slot.selected?.id) ids.add(slot.selected.id);
@@ -133,6 +162,7 @@
 		pathResult = null; pathError = ''; graphNodes = []; graphEdges = [];
 		ministryColorMap.clear(); nextPaletteIdx = 0;
 		nodePositions.clear(); edgeYearCache.clear(); orgCache.clear();
+		panelCollapsed = false;
 	}
 
 	// ---------------------------------------------------------------------------
@@ -802,78 +832,108 @@
 		</div>
 	</div>
 
-	<!-- ── Row 2: Source + Target search ────────────────── -->
+	<!-- ── Row 2: Source + Target search (collapsible) ─── -->
 	<div class="flex-none" style="background: var(--pt-bg-1); border-bottom: 1px solid var(--pt-border);">
-		<div class="grid grid-cols-1 md:grid-cols-2" style="divide-color: var(--pt-border);">
-
-			<!-- Source slot -->
-			<div class="p-4 space-y-3 overflow-y-auto md:max-h-[30vh] max-h-[35vh]"
-			     style="border-bottom: 1px solid var(--pt-border-muted);">
-				<div class="flex items-center gap-1.5">
-					<!-- Blueprint blue source indicator -->
-					<span class="w-2 h-2 shrink-0" style="background: var(--pt-blue); border-radius: 50%;"></span>
-					<p class="pt-label" style="color: #68b9e5;">Source</p>
-					<InfoTip tip="The person you're tracing FROM. Drag variants between zones to fine-tune which name spellings are included." />
+		{#if panelCollapsed && source.selected && target.selected}
+			<!-- ── Collapsed summary bar ────────────────────── -->
+			<div class="flex items-center gap-2 px-4 py-2.5 flex-wrap">
+				<!-- Source chip -->
+				<div class="flex items-center gap-1.5 px-2.5 py-1 shrink-0"
+				     style="background: rgba(19,124,189,0.12); border: 1px solid #137CBD; border-radius: 2px;">
+					<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: #137CBD;"></span>
+					<span class="text-sm font-medium" style="color: #68b9e5; font-family: var(--font-mono);">{source.selected.name}</span>
 				</div>
-				<PersonSearch
-					placeholder="Search source person…"
-					{confidenceThreshold}
-					selected={source.selected}
-					accentColor="blue"
-					disabled={target.loading}
-					onselect={(p) => selectPerson(source, p)}
-					onclear={() => clearSlot(source)}
-				/>
-				{#if source.loading}
-					<div class="flex items-center gap-2 py-1" style="color: var(--pt-text-muted);">
-						<div class="w-2.5 h-2.5 rounded-full animate-pulse shrink-0" style="background: var(--pt-blue);"></div>
-						<span class="text-xs">Loading career timeline…</span>
-					</div>
-				{:else if source.selected && source.nameVariants.length > 0}
-					<NameVariantZones
-						nameVariants={source.nameVariants}
-						activeNames={source.activeNames}
-						{confidenceThreshold}
-						inColor="blue"
-						careerData={source.career}
-						ontoggle={(name) => toggleVariant(source, name)}
-					/>
-				{/if}
-			</div>
-
-			<!-- Target slot -->
-			<div class="p-4 space-y-3 overflow-y-auto md:max-h-[30vh] max-h-[35vh]">
-				<div class="flex items-center gap-1.5">
-					<span class="w-2 h-2 shrink-0" style="border: 2px dashed var(--pt-green); border-radius: 50%;"></span>
-					<p class="pt-label" style="color: #3dcc91;">Target</p>
-					<InfoTip tip="The person you're tracing TO. The graph shows the shortest path between Source and Target through shared organisations." />
+				<!-- Arrow connector -->
+				<svg class="shrink-0 w-4 h-4" style="color: var(--pt-text-muted);" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/>
+				</svg>
+				<!-- Target chip -->
+				<div class="flex items-center gap-1.5 px-2.5 py-1 shrink-0"
+				     style="background: rgba(13,128,80,0.12); border: 1px dashed #0D8050; border-radius: 2px;">
+					<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: #0D8050;"></span>
+					<span class="text-sm font-medium" style="color: #3dcc91; font-family: var(--font-mono);">{target.selected.name}</span>
 				</div>
-				<PersonSearch
-					placeholder="Search target person…"
-					{confidenceThreshold}
-					selected={target.selected}
-					accentColor="emerald"
-					disabled={source.loading}
-					onselect={(p) => selectPerson(target, p)}
-					onclear={() => clearSlot(target)}
-				/>
-				{#if target.loading}
-					<div class="flex items-center gap-2 py-1" style="color: var(--pt-text-muted);">
-						<div class="w-2.5 h-2.5 rounded-full animate-pulse shrink-0" style="background: var(--pt-green);"></div>
-						<span class="text-xs">Loading career timeline…</span>
-					</div>
-				{:else if target.selected && target.nameVariants.length > 0}
-					<NameVariantZones
-						nameVariants={target.nameVariants}
-						activeNames={target.activeNames}
-						{confidenceThreshold}
-						inColor="emerald"
-						careerData={target.career}
-						ontoggle={(name) => toggleVariant(target, name)}
-					/>
-				{/if}
+				<div class="flex-1"></div>
+				<!-- Edit button -->
+				<button
+					onclick={() => { panelCollapsed = false; }}
+					class="pt-button pt-button-outlined text-xs shrink-0"
+					style="padding: 0.2rem 0.6rem;">
+					Edit ▾
+				</button>
 			</div>
-		</div>
+		{:else}
+			<!-- ── Expanded grid ─────────────────────────────── -->
+			<div class="grid grid-cols-1 md:grid-cols-2" style="divide-color: var(--pt-border);">
+
+				<!-- Source slot -->
+				<div class="p-4 space-y-3 overflow-y-auto md:max-h-[30vh] max-h-[35vh]"
+				     style="border-bottom: 1px solid var(--pt-border-muted);">
+					<div class="flex items-center gap-1.5">
+						<span class="w-2 h-2 shrink-0" style="background: var(--pt-blue); border-radius: 50%;"></span>
+						<p class="pt-label" style="color: #68b9e5;">Source</p>
+						<InfoTip tip="The person you're tracing FROM. Drag variants between zones to fine-tune which name spellings are included." />
+					</div>
+					<PersonSearch
+						placeholder="Search source person…"
+						{confidenceThreshold}
+						selected={source.selected}
+						accentColor="blue"
+						disabled={target.loading}
+						onselect={(p) => selectPerson(source, p)}
+						onclear={() => clearSlot(source)}
+					/>
+					{#if source.loading}
+						<div class="flex items-center gap-2 py-1" style="color: var(--pt-text-muted);">
+							<div class="w-2.5 h-2.5 rounded-full animate-pulse shrink-0" style="background: var(--pt-blue);"></div>
+							<span class="text-xs">Loading career timeline…</span>
+						</div>
+					{:else if source.selected && source.nameVariants.length > 0}
+						<NameVariantZones
+							nameVariants={source.nameVariants}
+							activeNames={source.activeNames}
+							{confidenceThreshold}
+							inColor="blue"
+							careerData={source.career}
+							ontoggle={(name) => toggleVariant(source, name)}
+						/>
+					{/if}
+				</div>
+
+				<!-- Target slot -->
+				<div class="p-4 space-y-3 overflow-y-auto md:max-h-[30vh] max-h-[35vh]">
+					<div class="flex items-center gap-1.5">
+						<span class="w-2 h-2 shrink-0" style="border: 2px dashed var(--pt-green); border-radius: 50%;"></span>
+						<p class="pt-label" style="color: #3dcc91;">Target</p>
+						<InfoTip tip="The person you're tracing TO. The graph shows the shortest path between Source and Target through shared organisations." />
+					</div>
+					<PersonSearch
+						placeholder="Search target person…"
+						{confidenceThreshold}
+						selected={target.selected}
+						accentColor="emerald"
+						disabled={source.loading}
+						onselect={(p) => selectPerson(target, p)}
+						onclear={() => clearSlot(target)}
+					/>
+					{#if target.loading}
+						<div class="flex items-center gap-2 py-1" style="color: var(--pt-text-muted);">
+							<div class="w-2.5 h-2.5 rounded-full animate-pulse shrink-0" style="background: var(--pt-green);"></div>
+							<span class="text-xs">Loading career timeline…</span>
+						</div>
+					{:else if target.selected && target.nameVariants.length > 0}
+						<NameVariantZones
+							nameVariants={target.nameVariants}
+							activeNames={target.activeNames}
+							{confidenceThreshold}
+							inColor="emerald"
+							careerData={target.career}
+							ontoggle={(name) => toggleVariant(target, name)}
+						/>
+					{/if}
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	<!-- ── Row 3: Status / results toolbar (flex-none, no graph overlap) ── -->
@@ -940,6 +1000,35 @@
      absolute inset-0 and manages its own scroll context internally -->
 <div class="flex-1 relative" style="min-height: 35vh;">
 	<PathTimeline nodes={graphNodes} edges={graphEdges} {getMinistryColor} />
+
+	<!-- ── Shimmer overlay while path is loading ──────── -->
+	{#if pathLoading}
+		<div class="absolute inset-0 z-10 flex flex-col" style="background: var(--pt-bg-0);">
+			<!-- Fake timeline rows -->
+			<div class="flex-1 p-5 space-y-4 overflow-hidden">
+				{#each [72, 55, 88, 63, 48, 80] as pct, i}
+					<div class="flex items-center gap-3" style="opacity: {1 - i * 0.1};">
+						<!-- Agency label placeholder -->
+						<div class="shrink-0 h-5 shimmer-bar" style="width: {68 + (i % 3) * 14}px; border-radius: 2px;"></div>
+						<!-- Timeline bar placeholder -->
+						<div class="h-7 shimmer-bar" style="width: {pct}%; border-radius: 2px;"></div>
+					</div>
+				{/each}
+			</div>
+
+			<!-- Centered loading message -->
+			<div class="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
+				<!-- Spinner ring -->
+				<div class="w-7 h-7 rounded-full border-2 animate-spin"
+				     style="border-color: var(--pt-border); border-top-color: var(--pt-blue);"></div>
+				<!-- Rotating message -->
+				<p class="text-sm text-center px-8 transition-opacity"
+				   style="color: var(--pt-text-muted); max-width: 320px; font-style: italic;">
+					{LOADING_MSGS[loadingMsgIdx]}
+				</p>
+			</div>
+		</div>
+	{/if}
 </div>
 </div>
 
@@ -1102,3 +1191,22 @@
 		</button>
 	</div>
 {/if}
+
+<style>
+	.shimmer-bar {
+		background: linear-gradient(
+			90deg,
+			var(--pt-bg-1) 0%,
+			var(--pt-bg-3) 45%,
+			var(--pt-bg-2) 55%,
+			var(--pt-bg-1) 100%
+		);
+		background-size: 300% 100%;
+		animation: shimmer-sweep 1.8s ease-in-out infinite;
+	}
+
+	@keyframes shimmer-sweep {
+		0%   { background-position: 100% 0; }
+		100% { background-position: -100% 0; }
+	}
+</style>
