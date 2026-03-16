@@ -878,12 +878,13 @@
 			No connection found — try disabling Temporal mode
 		</div>
 	{:else if pathResult && pathResult.nodes.length > 0}
-		<!-- ── Stat cards + graph controls ─────────────────── -->
-		<div class="flex-none px-3 py-2 flex items-center justify-between gap-3 flex-wrap"
+		<!-- ── Stat cards + controls (3-column: spacer | centered cards | reset) -->
+		<div class="flex-none px-3 py-2 flex items-center gap-2"
 		     style="background: var(--pt-bg-0); border-bottom: 1px solid var(--pt-border-muted);">
-			<!-- Stat cards row -->
-			<div class="flex items-stretch gap-1.5 overflow-x-auto" style="scrollbar-width: none;">
-				<!-- Degrees -->
+			<!-- Left spacer (same width as reset button area to keep cards truly centered) -->
+			<div class="flex-1"></div>
+			<!-- Stat cards — centered -->
+			<div class="flex items-stretch gap-1.5 overflow-x-auto shrink-0" style="scrollbar-width: none;">
 				<div class="flex flex-col items-center justify-center px-3 py-1.5 shrink-0"
 				     style="background: var(--pt-bg-1); border: 1px solid var(--pt-border-muted); border-radius: 2px; min-width: 60px;">
 					<span class="text-base font-bold tabular-nums pt-data leading-none" style="color: #ad99ff;">{degreeBadge}</span>
@@ -911,11 +912,11 @@
 				</div>
 				{/if}
 			</div>
-		<!-- Reset control -->
-		<div class="flex gap-1.5 shrink-0">
-			<button onclick={resetGraph} class="pt-button pt-button-outlined">↺ Reset</button>
+			<!-- Right side: Reset button (flex-1 so it matches left spacer width) -->
+			<div class="flex-1 flex justify-end">
+				<button onclick={resetGraph} class="pt-button pt-button-outlined shrink-0">↺ Reset</button>
+			</div>
 		</div>
-	</div>
 {/if}
 
 <!-- ── Row 4: Timeline visualization ─────────── -->
