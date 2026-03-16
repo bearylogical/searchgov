@@ -429,11 +429,10 @@
 
 		const g = svg.append('g');
 
-		svg.call(
-			d3.zoom<SVGSVGElement, unknown>()
-				.scaleExtent([0.15, 5])
-				.on('zoom', e => g.attr('transform', e.transform))
-		);
+		const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+			.scaleExtent([0.15, 5])
+			.on('zoom', e => g.attr('transform', e.transform));
+		svg.call(zoomBehavior);
 
 		// Deep-copy with stored positions
 		const simNodes: GNode[] = graphNodes.map(n => ({
@@ -641,6 +640,25 @@
 				.attr('x', d => (((d.source as GNode).x ?? 0) + ((d.target as GNode).x ?? 0)) / 2)
 				.attr('y', d => (((d.source as GNode).y ?? 0) + ((d.target as GNode).y ?? 0)) / 2 - 7);
 			node.attr('transform', d => `translate(${d.x ?? 0},${d.y ?? 0})`);
+		});
+
+		// ── Fit to view after simulation settles ───────────
+		simulation.on('end', () => {
+			const pad = 80; // px padding around all nodes
+			const xs = simNodes.map(n => n.x ?? W / 2);
+			const ys = simNodes.map(n => n.y ?? H / 2);
+			const x0 = Math.min(...xs) - pad;
+			const x1 = Math.max(...xs) + pad;
+			const y0 = Math.min(...ys) - pad;
+			const y1 = Math.max(...ys) + pad;
+			const contentW = x1 - x0;
+			const contentH = y1 - y0;
+			// Cap scale at 1.8× so we don't zoom in too aggressively on small graphs
+			const scale = Math.min(W / contentW, H / contentH, 1.8);
+			const tx = (W - scale * (x0 + x1)) / 2;
+			const ty = (H - scale * (y0 + y1)) / 2;
+			svg.transition().duration(600)
+				.call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
 		});
 	}
 
