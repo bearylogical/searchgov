@@ -877,35 +877,37 @@
 			No connection found — try disabling Temporal mode
 		</div>
 	{:else if pathResult && pathResult.nodes.length > 0}
-		<!-- ── Stat bar + graph controls ───────────────────── -->
-		<div class="flex-none px-4 py-2 flex items-center justify-between gap-3 flex-wrap"
+		<!-- ── Stat cards + graph controls ─────────────────── -->
+		<div class="flex-none px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap"
 		     style="background: var(--pt-bg-1); border-bottom: 1px solid var(--pt-border);">
-			<!-- Stat chips — horizontal scroll on mobile -->
-			<div class="flex items-center gap-2 overflow-x-auto" style="scrollbar-width: none;">
-				<div class="flex items-baseline gap-1.5 shrink-0">
-					<span class="text-xl font-bold tabular-nums pt-data" style="color: #ad99ff;">{degreeBadge}</span>
-					<span class="pt-label">{degreeBadge === 1 ? 'Degree' : 'Degrees'}</span>
+			<!-- Stat cards row -->
+			<div class="flex items-stretch gap-2 overflow-x-auto" style="scrollbar-width: none;">
+				<!-- Degrees -->
+				<div class="flex flex-col items-center justify-center px-4 py-2 shrink-0"
+				     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; min-width: 72px;">
+					<span class="text-2xl font-bold tabular-nums pt-data leading-none" style="color: #ad99ff;">{degreeBadge}</span>
+					<span class="pt-label mt-1">{degreeBadge === 1 ? 'Degree' : 'Degrees'}</span>
 				</div>
 				{#if connectionStats.ministries > 0}
-					<span style="color: var(--pt-border-muted);">·</span>
-					<div class="flex items-baseline gap-1.5 shrink-0">
-						<span class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">{connectionStats.ministries}</span>
-						<span class="pt-label">{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}</span>
-					</div>
+				<div class="flex flex-col items-center justify-center px-4 py-2 shrink-0"
+				     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; min-width: 72px;">
+					<span class="text-2xl font-bold tabular-nums pt-data leading-none" style="color: var(--pt-text-primary);">{connectionStats.ministries}</span>
+					<span class="pt-label mt-1">{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}</span>
+				</div>
 				{/if}
 				{#if connectionStats.agencies > 0}
-					<span style="color: var(--pt-border-muted);">·</span>
-					<div class="flex items-baseline gap-1.5 shrink-0">
-						<span class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">{connectionStats.agencies}</span>
-						<span class="pt-label">{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}</span>
-					</div>
+				<div class="flex flex-col items-center justify-center px-4 py-2 shrink-0"
+				     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; min-width: 72px;">
+					<span class="text-2xl font-bold tabular-nums pt-data leading-none" style="color: var(--pt-text-primary);">{connectionStats.agencies}</span>
+					<span class="pt-label mt-1">{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}</span>
+				</div>
 				{/if}
 				{#if overlapTimeline}
-					<span style="color: var(--pt-border-muted);">·</span>
-					<div class="flex items-baseline gap-1.5 shrink-0">
-						<span class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">{overlapTimeline}</span>
-						<span class="pt-label">Timeline</span>
-					</div>
+				<div class="flex flex-col items-center justify-center px-4 py-2 shrink-0"
+				     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; min-width: 72px;">
+					<span class="text-2xl font-bold tabular-nums pt-data leading-none" style="color: var(--pt-text-primary);">{overlapTimeline}</span>
+					<span class="pt-label mt-1">Timeline</span>
+				</div>
 				{/if}
 			</div>
 			<!-- Graph controls -->
