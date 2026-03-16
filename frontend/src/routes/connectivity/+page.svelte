@@ -248,8 +248,10 @@
 	}
 
 	function buildGraphFromPath(nodes: PathNode[]) {
-		const sourceId = source.selected?.id;
-		const targetId = target.selected?.id;
+		// Use all active IDs (primary + name variants) so that a path node
+		// matched via a variant still gets tagged as source/target.
+		const sourceIds = new Set(activeIds(source));
+		const targetIds = new Set(activeIds(target));
 
 		graphNodes = nodes.map(n => ({
 			id: n.node_id,
@@ -259,8 +261,8 @@
 			org_id: n.org_id,
 			role: n.node_type === 'person' ? (latestRole(n.employment_profile) ?? undefined) : undefined,
 			inPath: true,
-			isSource: n.person_id === sourceId,
-			isTarget: n.person_id === targetId,
+			isSource: !!n.person_id && sourceIds.has(n.person_id),
+			isTarget: !!n.person_id && targetIds.has(n.person_id),
 			expanded: false
 		} satisfies GNode));
 
