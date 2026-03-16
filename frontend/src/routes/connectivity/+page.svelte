@@ -725,36 +725,29 @@
 	}
 </script>
 
-<div class="flex flex-col" style="height: calc(100vh - 3.5rem)">
+<div class="flex-1 flex flex-col min-h-0">
 
-	<!-- ── Row 1: Title ─────────────────────────────────── -->
-	<div class="flex-none bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-5 py-3">
-		<div class="flex items-center gap-2">
-			<h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Connectivity Explorer</h1>
+	<!-- ── Row 1: Title + controls bar ───────────────────── -->
+	<div class="flex-none px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap"
+	     style="background: var(--pt-bg-1); border-bottom: 1px solid var(--pt-border);">
+		<div class="flex items-center gap-2 min-w-0">
+			<h1 class="text-xs font-semibold tracking-widest uppercase" style="color: var(--pt-text-primary);">Connectivity Explorer</h1>
 			<InfoTip tip="Find the shortest connection path between two people through shared organisations. Click any person node to view their network stats." />
 		</div>
-	</div>
-
-	<!-- ── Row 2: Controls ───────────────────────────────── -->
-	<div class="flex-none bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-5 py-3">
-		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-			<div class="flex items-center gap-1.5 min-w-[160px] max-w-xs flex-1">
+		<div class="flex items-center gap-3 flex-wrap">
+			<div class="flex items-center gap-1.5">
 				<ConfidenceSlider bind:value={confidenceThreshold} compact={true} />
-				<InfoTip tip="Variants below this score land in &quot;Not in timeline&quot; by default. Also controls search grouping." />
+				<InfoTip tip="Variants below this score land in &quot;Not in timeline&quot; by default." />
 			</div>
-			<label class="flex items-center gap-2 cursor-pointer group shrink-0">
+			<label class="flex items-center gap-1.5 cursor-pointer shrink-0">
 				<input type="checkbox" bind:checked={temporal}
 					onchange={() => { if (source.selected && target.selected) findPath(); }}
-					class="rounded accent-blue-600 w-3.5 h-3.5"/>
-				<span class="text-sm text-gray-600 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 transition-colors">
-					Temporal (actual co-workers only)
-				</span>
-				<InfoTip tip="When on, only finds connections where people were physically working together at the same time. Turn off to allow any historical connection." />
+					style="accent-color: var(--pt-blue); width: 14px; height: 14px;"/>
+				<span class="text-xs" style="color: var(--pt-text-secondary);">Temporal</span>
+				<InfoTip tip="Only finds connections where people were physically working together at the same time." />
 			</label>
 			{#if source.selected && target.selected}
-				<button onclick={findPath} disabled={pathLoading}
-					class="shrink-0 px-4 py-1.5 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg
-					       transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+				<button onclick={findPath} disabled={pathLoading} class="pt-button pt-button-primary">
 					{pathLoading ? 'Searching…' : 'Find Connection'}
 				</button>
 			{/if}
@@ -762,15 +755,17 @@
 	</div>
 
 	<!-- ── Row 2: Source + Target search ────────────────── -->
-	<div class="flex-none bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-		<div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200 dark:divide-gray-700">
+	<div class="flex-none" style="background: var(--pt-bg-1); border-bottom: 1px solid var(--pt-border);">
+		<div class="grid grid-cols-1 md:grid-cols-2" style="divide-color: var(--pt-border);">
 
 			<!-- Source slot -->
-			<div class="p-4 space-y-3 overflow-y-auto max-h-[32vh]">
+			<div class="p-4 space-y-3 overflow-y-auto md:max-h-[30vh] max-h-[35vh]"
+			     style="border-bottom: 1px solid var(--pt-border-muted);">
 				<div class="flex items-center gap-1.5">
-					<span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
-					<p class="text-sm font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Source</p>
-					<InfoTip tip="The person you're tracing FROM. Drag variants between zones to fine-tune which name spellings are included in the search." />
+					<!-- Blueprint blue source indicator -->
+					<span class="w-2 h-2 shrink-0" style="background: var(--pt-blue); border-radius: 50%;"></span>
+					<p class="pt-label" style="color: #68b9e5;">Source</p>
+					<InfoTip tip="The person you're tracing FROM. Drag variants between zones to fine-tune which name spellings are included." />
 				</div>
 				<PersonSearch
 					placeholder="Search source person…"
@@ -793,10 +788,10 @@
 			</div>
 
 			<!-- Target slot -->
-			<div class="p-4 space-y-3 overflow-y-auto max-h-[32vh]">
+			<div class="p-4 space-y-3 overflow-y-auto md:max-h-[30vh] max-h-[35vh]">
 				<div class="flex items-center gap-1.5">
-					<span class="w-2.5 h-2.5 rounded-full border-2 border-dashed border-emerald-500 shrink-0"></span>
-					<p class="text-sm font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Target</p>
+					<span class="w-2 h-2 shrink-0" style="border: 2px dashed var(--pt-green); border-radius: 50%;"></span>
+					<p class="pt-label" style="color: #3dcc91;">Target</p>
 					<InfoTip tip="The person you're tracing TO. The graph shows the shortest path between Source and Target through shared organisations." />
 				</div>
 				<PersonSearch
@@ -822,84 +817,61 @@
 	</div>
 
 	<!-- ── Row 3: D3 canvas ─────────────────────────────── -->
-	<section class="flex-1 relative flex flex-col bg-gray-50 dark:bg-gray-950 overflow-hidden min-h-0">
+	<section class="flex-1 relative flex flex-col overflow-hidden min-h-[40vh]"
+	         style="background: var(--pt-bg-0);">
 
 		<!-- Status / stat cards / toolbar -->
 		{#if pathResult || pathLoading || pathError}
 			<div class="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 w-full max-w-xl px-3">
 				{#if pathLoading}
-					<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-					            rounded-full px-4 py-1.5 shadow-md text-sm text-gray-500 animate-pulse">
+					<div class="px-4 py-1.5 text-xs animate-pulse"
+					     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; color: var(--pt-text-muted);">
 						Searching for connection…
 					</div>
 				{:else if pathError}
-					<div class="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800
-					            rounded-full px-4 py-1.5 shadow-md text-sm text-red-600 dark:text-red-400">
+					<div class="px-4 py-1.5 text-xs"
+					     style="background: var(--pt-red-tint); border: 1px solid var(--pt-red); border-radius: 2px; color: #ff7373;">
 						{pathError}
 					</div>
 				{:else if pathResult && pathResult.length === 0}
-					<div class="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800
-					            rounded-full px-4 py-1.5 shadow-md text-sm text-amber-700 dark:text-amber-400">
+					<div class="px-4 py-1.5 text-xs"
+					     style="background: var(--pt-orange-tint); border: 1px solid var(--pt-orange); border-radius: 2px; color: #ffb366;">
 						No connection found — try disabling Temporal mode
 					</div>
 				{:else if pathResult}
-					<!-- Stat cards row -->
-					<div class="flex gap-2.5 flex-wrap justify-center">
-						<div class="bg-white dark:bg-gray-900 border border-indigo-100 dark:border-indigo-900
-						            rounded-2xl px-5 py-3 shadow-sm text-center min-w-[80px]">
-							<p class="text-3xl font-bold text-indigo-600 dark:text-indigo-400 tabular-nums leading-none">{degreeBadge}</p>
-							<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 uppercase tracking-wide font-medium">
-								{degreeBadge === 1 ? 'Degree' : 'Degrees'}
-							</p>
+					<!-- Stat cards — horizontal scroll on mobile -->
+					<div class="flex gap-2 overflow-x-auto pb-1 w-full justify-center" style="scrollbar-width: none;">
+						<div class="pt-card shrink-0 text-center min-w-[72px]" style="padding: 0.625rem 1rem;">
+							<p class="text-2xl font-bold tabular-nums leading-none pt-data" style="color: #ad99ff;">{degreeBadge}</p>
+							<p class="pt-label mt-1">{degreeBadge === 1 ? 'Degree' : 'Degrees'}</p>
 						</div>
 						{#if connectionStats.ministries > 0}
-							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							            rounded-2xl px-5 py-3 shadow-sm text-center min-w-[80px]">
-								<p class="text-3xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-none">{connectionStats.ministries}</p>
-								<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 uppercase tracking-wide font-medium">
-									{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}
-								</p>
+							<div class="pt-card shrink-0 text-center min-w-[72px]" style="padding: 0.625rem 1rem;">
+								<p class="text-2xl font-bold tabular-nums leading-none pt-data" style="color: var(--pt-text-primary);">{connectionStats.ministries}</p>
+								<p class="pt-label mt-1">{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}</p>
 							</div>
 						{/if}
 						{#if connectionStats.agencies > 0}
-							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							            rounded-2xl px-5 py-3 shadow-sm text-center min-w-[80px]">
-								<p class="text-3xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-none">{connectionStats.agencies}</p>
-								<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 uppercase tracking-wide font-medium">
-									{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}
-								</p>
+							<div class="pt-card shrink-0 text-center min-w-[72px]" style="padding: 0.625rem 1rem;">
+								<p class="text-2xl font-bold tabular-nums leading-none pt-data" style="color: var(--pt-text-primary);">{connectionStats.agencies}</p>
+								<p class="pt-label mt-1">{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}</p>
 							</div>
 						{/if}
 						{#if overlapTimeline}
-							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							            rounded-2xl px-5 py-3 shadow-sm text-center min-w-[96px]">
-								<p class="text-2xl font-bold text-gray-800 dark:text-gray-100 tabular-nums leading-none">{overlapTimeline}</p>
-								<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 uppercase tracking-wide font-medium">Timeline</p>
+							<div class="pt-card shrink-0 text-center min-w-[80px]" style="padding: 0.625rem 1rem;">
+								<p class="text-xl font-bold tabular-nums leading-none pt-data" style="color: var(--pt-text-primary);">{overlapTimeline}</p>
+								<p class="pt-label mt-1">Timeline</p>
 							</div>
 						{/if}
 					</div>
 					<!-- Graph control buttons -->
 					<div class="flex gap-1.5 flex-wrap justify-center">
-						<button onclick={resetGraph}
-							class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg
-							       bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							       text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800
-							       shadow-sm transition-colors">
-							↺ Reset
-						</button>
-						<button onclick={expandAllNodes} disabled={expandingAll}
-							class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg
-							       bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							       text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800
-							       shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+						<button onclick={resetGraph} class="pt-button pt-button-outlined">↺ Reset</button>
+						<button onclick={expandAllNodes} disabled={expandingAll} class="pt-button pt-button-outlined disabled:opacity-50 disabled:cursor-not-allowed">
 							{expandingAll ? '⏳ Expanding…' : '⊕ Expand All'}
 						</button>
-						<button onclick={collapseExpanded}
-							disabled={!graphNodes.some(n => !n.inPath)}
-							class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg
-							       bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-							       text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800
-							       shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+						<button onclick={collapseExpanded} disabled={!graphNodes.some(n => !n.inPath)}
+							class="pt-button pt-button-outlined disabled:opacity-40 disabled:cursor-not-allowed">
 							⊖ Collapse
 						</button>
 					</div>
@@ -911,17 +883,17 @@
 		{#if graphNodes.length === 0 && !pathLoading}
 			<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
 				<div class="text-center space-y-2">
-					<svg class="w-16 h-16 text-gray-200 dark:text-gray-700 mx-auto" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
+					<svg class="w-12 h-12 mx-auto" style="color: var(--pt-border);" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
 					</svg>
 					{#if !source.selected && !target.selected}
-						<p class="text-sm text-gray-400">Search for two people to find their connection</p>
+						<p class="text-xs" style="color: var(--pt-text-muted);">Search for two people to find their connection</p>
 					{:else if source.selected && !target.selected}
-						<p class="text-sm text-gray-400">Now search for a target person</p>
+						<p class="text-xs" style="color: var(--pt-text-muted);">Now search for a target person</p>
 					{:else if !source.selected && target.selected}
-						<p class="text-sm text-gray-400">Now search for a source person</p>
+						<p class="text-xs" style="color: var(--pt-text-muted);">Now search for a source person</p>
 					{:else}
-						<p class="text-sm text-gray-400">Click "Find Connection" to search</p>
+						<p class="text-xs" style="color: var(--pt-text-muted);">Click "Find Connection" to search</p>
 					{/if}
 				</div>
 			</div>
@@ -931,17 +903,17 @@
 
 		<!-- Legend -->
 		{#if ministryLegend.length > 0}
-			<div class="absolute bottom-4 left-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-			            rounded-xl px-3 py-2.5 shadow-sm max-w-[200px] space-y-2">
-				<div class="flex items-center gap-1.5">
-					<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Ministry</p>
-					<InfoTip tip="◆ diamond = ministry (root). ▬ rect = agency under that ministry. Colours match across the graph." />
+			<div class="absolute bottom-3 left-3 max-w-[180px] space-y-1.5 p-2.5"
+			     style="background: var(--pt-bg-1); border: 1px solid var(--pt-border); border-radius: 2px;">
+				<div class="flex items-center gap-1">
+					<p class="pt-label">Ministry</p>
+					<InfoTip tip="◆ diamond = ministry (root). ▬ rect = agency. Colours match across the graph." />
 				</div>
-				<ul class="space-y-1.5">
+				<ul class="space-y-1">
 					{#each ministryLegend as item}
-						<li class="flex items-center gap-2">
-							<span class="w-3 h-3 rounded-sm shrink-0" style="background: {item.color}"></span>
-							<span class="text-xs text-gray-700 dark:text-gray-300 leading-tight truncate">{item.ministry}</span>
+						<li class="flex items-center gap-1.5">
+							<span class="w-2.5 h-2.5 shrink-0" style="background: {item.color}; border-radius: 1px;"></span>
+							<span class="text-xs truncate" style="color: var(--pt-text-secondary);">{item.ministry}</span>
 						</li>
 					{/each}
 				</ul>
@@ -949,9 +921,8 @@
 		{/if}
 
 		{#if graphNodes.length > 0}
-			<div class="absolute bottom-4 right-4 text-xs text-gray-400 dark:text-gray-600
-			            bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-			            rounded-lg px-3 py-2 shadow-sm">
+			<div class="absolute bottom-3 right-3 text-xs px-2.5 py-1.5 hidden sm:block"
+			     style="color: var(--pt-text-muted); background: var(--pt-bg-1); border: 1px solid var(--pt-border); border-radius: 2px;">
 				Click person · Scroll to zoom · Drag to pan
 			</div>
 		{/if}
@@ -969,56 +940,54 @@
 		})
 		.filter((n): n is GNode => n != null)}
 	<div
-		class="fixed z-30 pointer-events-none max-w-60 rounded-xl border border-gray-200 dark:border-gray-700
-		       bg-white dark:bg-gray-900 shadow-xl px-3.5 py-2.5 space-y-1.5"
-		style="left: {hoverClientX + 14}px; top: {hoverClientY - 70}px;"
+		class="fixed z-30 pointer-events-none max-w-56 space-y-1.5 p-3"
+		style="left: {hoverClientX + 14}px; top: {hoverClientY - 70}px;
+		       background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px;
+		       box-shadow: 0 4px 12px rgba(0,0,0,0.5);"
 	>
-		<p class="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{hoveredNode.name}</p>
+		<p class="text-xs font-semibold leading-snug" style="color: var(--pt-text-primary);">{hoveredNode.name}</p>
 
 		{#if hoveredNode.type === 'org'}
-			<!-- Org tooltip -->
 			{#if hoveredNode.agencyName && hoveredNode.ministry}
 				<div class="space-y-0.5">
 					<div class="flex items-center gap-1.5">
-						<span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}"></span>
-						<p class="text-xs font-medium text-gray-700 dark:text-gray-300">{hoveredNode.ministry}</p>
+						<span class="w-2 h-2 shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}; border-radius: 1px;"></span>
+						<p class="text-xs" style="color: var(--pt-text-secondary);">{hoveredNode.ministry}</p>
 					</div>
-					<p class="text-xs text-gray-400 pl-4">↳ {hoveredNode.agencyName}</p>
+					<p class="text-xs pl-3.5" style="color: var(--pt-text-muted);">↳ {hoveredNode.agencyName}</p>
 				</div>
-				<p class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Agency</p>
+				<p class="pt-label">Agency</p>
 			{:else if hoveredNode.ministry}
 				<div class="flex items-center gap-1.5">
-					<span class="w-2.5 h-2.5 rotate-45 shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}"></span>
-					<p class="text-xs text-gray-500 dark:text-gray-400">{hoveredNode.ministry}</p>
+					<span class="w-2 h-2 rotate-45 shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)};"></span>
+					<p class="text-xs" style="color: var(--pt-text-secondary);">{hoveredNode.ministry}</p>
 				</div>
-				<p class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Ministry</p>
+				<p class="pt-label">Ministry</p>
 			{/if}
 		{:else}
-			<!-- Person tooltip -->
 			{#if hoveredNode.role}
-				<p class="text-xs text-gray-600 dark:text-gray-400">{hoveredNode.role}</p>
+				<p class="text-xs" style="color: var(--pt-text-secondary);">{hoveredNode.role}</p>
 			{/if}
 			{#if hoveredNode.ministry}
 				<div class="flex items-center gap-1.5">
-					<span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}"></span>
-					<p class="text-xs text-gray-500 dark:text-gray-400">{hoveredNode.ministry}</p>
+					<span class="w-2 h-2 shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}; border-radius: 1px;"></span>
+					<p class="text-xs" style="color: var(--pt-text-muted);">{hoveredNode.ministry}</p>
 				</div>
 			{/if}
 			{#if adjOrgs.length > 0}
-				<div class="border-t border-gray-100 dark:border-gray-800 pt-1.5">
-					<p class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1">Connected through</p>
+				<div class="pt-1" style="border-top: 1px solid var(--pt-border-muted);">
+					<p class="pt-label mb-1">Connected through</p>
 					<ul class="space-y-0.5">
 						{#each adjOrgs as org}
-							<li class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
-								<span class="w-2 h-2 rounded-sm shrink-0"
-								      style="background: {org.ministry ? getMinistryColor(org.ministry) : '#94a3b8'}"></span>
+							<li class="flex items-center gap-1.5 text-xs" style="color: var(--pt-text-muted);">
+								<span class="w-1.5 h-1.5 shrink-0" style="background: {org.ministry ? getMinistryColor(org.ministry) : '#5C7080'}; border-radius: 1px;"></span>
 								<span class="truncate">{org.agencyName ?? org.ministry ?? org.name}</span>
 							</li>
 						{/each}
 					</ul>
 				</div>
 			{/if}
-			<p class="text-xs text-gray-400 dark:text-gray-500">
+			<p class="text-xs" style="color: var(--pt-text-muted);">
 				{hoveredNode.isSource ? '▲ Source' : hoveredNode.isTarget ? '▼ Target' : hoveredNode.inPath ? 'Path node' : 'Expanded'}
 				· Click for stats
 			</p>
@@ -1029,38 +998,38 @@
 <!-- ── Node stats modal ─────────────────────────────── -->
 {#if modalNode}
 	<button
-		class="fixed inset-0 z-40 bg-black/20 dark:bg-black/40 backdrop-blur-sm"
+		class="fixed inset-0 z-40 bg-black/50"
 		onclick={closeModal}
 		aria-label="Close modal"
 	></button>
 
 	<div class="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
-	            w-full max-w-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700
-	            rounded-2xl shadow-2xl p-6 space-y-4">
+	            w-full max-w-sm p-5 space-y-4"
+	     style="background: var(--pt-bg-1); border: 1px solid var(--pt-border); border-radius: 2px;
+	            box-shadow: 0 8px 32px rgba(0,0,0,0.6);">
 
 		<div class="flex items-start justify-between gap-3">
 			<div class="flex items-center gap-3">
-				<div class="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
-				     style="background: {personFill(modalNode)}">
+				<div class="w-10 h-10 flex items-center justify-center text-white text-xs font-bold shrink-0"
+				     style="background: {personFill(modalNode)}; border-radius: 2px; font-family: var(--font-mono);">
 					{modalNode.name.slice(0, 2).toUpperCase()}
 				</div>
 				<div>
-					<h2 class="font-semibold text-gray-900 dark:text-gray-100 text-base">{modalNode.name}</h2>
+					<h2 class="text-sm font-semibold" style="color: var(--pt-text-primary);">{modalNode.name}</h2>
 					{#if modalNode.role}
-						<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{modalNode.role}</p>
+						<p class="text-xs mt-0.5" style="color: var(--pt-text-muted);">{modalNode.role}</p>
 					{/if}
 					{#if modalNode.ministry}
 						<div class="flex items-center gap-1.5 mt-0.5">
-							<span class="w-2 h-2 rounded-sm" style="background: {getMinistryColor(modalNode.ministry)}"></span>
-							<p class="text-xs text-gray-500 dark:text-gray-400">{modalNode.ministry}</p>
+							<span class="w-2 h-2" style="background: {getMinistryColor(modalNode.ministry)}; border-radius: 1px;"></span>
+							<p class="text-xs" style="color: var(--pt-text-muted);">{modalNode.ministry}</p>
 						</div>
 					{/if}
 				</div>
 			</div>
 			<button onclick={closeModal}
-				class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400
-				       hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800
-				       transition-colors shrink-0"
+				class="w-7 h-7 flex items-center justify-center transition-colors shrink-0"
+				style="color: var(--pt-text-muted); border-radius: 2px;"
 				aria-label="Close">
 				<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -1070,22 +1039,22 @@
 
 		{#if modalLoading}
 			<div class="space-y-2">
-				<div class="h-16 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse"></div>
-				<div class="h-28 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse"></div>
+				<div class="h-14 rounded animate-pulse" style="background: var(--pt-bg-2);"></div>
+				<div class="h-24 rounded animate-pulse" style="background: var(--pt-bg-2);"></div>
 			</div>
 		{:else if modalNetwork}
-			<div class="grid grid-cols-2 gap-3">
-				<div class="bg-gray-50 dark:bg-gray-800 rounded-xl p-3 text-center">
-					<p class="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">
+			<div class="grid grid-cols-2 gap-2">
+				<div class="p-3 text-center" style="background: var(--pt-bg-2); border-radius: 2px;">
+					<p class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">
 						{modalNetwork.summary.total_colleagues}
 					</p>
-					<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Direct connections</p>
+					<p class="text-xs mt-0.5" style="color: var(--pt-text-muted);">Direct connections</p>
 				</div>
-				<div class="bg-gray-50 dark:bg-gray-800 rounded-xl p-3 text-center">
-					<p class="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">
+				<div class="p-3 text-center" style="background: var(--pt-bg-2); border-radius: 2px;">
+					<p class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">
 						{ministryCounts.length}
 					</p>
-					<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+					<p class="text-xs mt-0.5" style="color: var(--pt-text-muted);">
 						{ministryCounts.length === 1 ? 'Ministry' : 'Ministries'}
 					</p>
 				</div>
@@ -1093,15 +1062,14 @@
 
 			{#if ministryCounts.length > 0}
 				<div>
-					<p class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Connections by ministry</p>
-					<ul class="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+					<p class="pt-label mb-2">Connections by ministry</p>
+					<ul class="space-y-1.5 max-h-40 overflow-y-auto">
 						{#each ministryCounts as m}
 							<li class="flex items-center gap-2">
-								<span class="w-3 h-3 rounded-sm shrink-0" style="background: {getMinistryColor(m.ministry)}"></span>
-								<span class="text-sm text-gray-700 dark:text-gray-300 truncate flex-1">{m.ministry}</span>
-								<span class="text-xs font-semibold tabular-nums shrink-0
-								             bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400
-								             rounded-full px-2 py-0.5">
+								<span class="w-2.5 h-2.5 shrink-0" style="background: {getMinistryColor(m.ministry)}; border-radius: 1px;"></span>
+								<span class="text-xs truncate flex-1" style="color: var(--pt-text-secondary);">{m.ministry}</span>
+								<span class="text-xs font-semibold tabular-nums shrink-0 pt-data px-1.5 py-0.5"
+								      style="background: var(--pt-bg-3); color: var(--pt-text-secondary); border-radius: 2px;">
 									{m.count}
 								</span>
 							</li>
@@ -1114,10 +1082,8 @@
 		<button
 			onclick={expandFromModal}
 			disabled={modalLoading || modalNode.expanded}
-			class="w-full py-2.5 text-sm font-semibold rounded-xl transition-colors
-			       {modalNode.expanded
-			         ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
-			         : 'bg-indigo-600 hover:bg-indigo-700 text-white'}">
+			class="pt-button w-full justify-center {modalNode.expanded ? 'pt-button-outlined' : 'pt-button-primary'}"
+			style={modalNode.expanded ? 'opacity: 0.5; cursor: not-allowed;' : ''}>
 			{modalNode.expanded ? 'Already expanded' : 'Expand in graph'}
 		</button>
 	</div>

@@ -67,50 +67,51 @@
 
 {#if !$isAuthenticated}
 	<div class="flex-1 flex items-center justify-center p-8">
-		<div class="text-center max-w-md">
-			<div class="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center mx-auto mb-6 shadow-lg">
-				<svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
-					<path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/>
-				</svg>
-			</div>
-			<h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">SGDI Analytics</h1>
-			<p class="text-gray-500 dark:text-gray-400 mb-8 text-sm leading-relaxed">
+		<div class="text-center max-w-sm">
+			<img src="/lion_search.png" alt="SGDI Analytics" class="w-20 h-20 object-contain mx-auto mb-6" />
+			<h1 class="text-xl font-bold mb-2 tracking-tight" style="color: var(--pt-text-primary);">SGDI Analytics</h1>
+			<p class="mb-8 text-sm leading-relaxed" style="color: var(--pt-text-muted);">
 				Explore Singapore's government employment data — career histories,
 				organisational hierarchies, and workforce patterns.
 			</p>
-			<a href="/login" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors">
+			<a href="/login" class="pt-button pt-button-primary inline-flex items-center gap-2">
 				Sign in to continue
-				<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+				<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
 				</svg>
 			</a>
 		</div>
 	</div>
 {:else}
-	<div class="max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10 space-y-10">
-		<div>
-			<h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">Welcome back</h1>
-			<p class="text-gray-500 dark:text-gray-400 text-sm mt-1">{$user?.email}</p>
+	<div class="max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+		<!-- Welcome header -->
+		<div style="border-bottom: 1px solid var(--pt-border-muted); padding-bottom: 1rem;">
+			<h1 class="text-base font-semibold" style="color: var(--pt-text-primary);">Dashboard</h1>
+			<p class="text-xs mt-0.5 pt-data" style="color: var(--pt-text-muted);">{$user?.email}</p>
 		</div>
 
 		<!-- Stats row -->
-		<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+		<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
 			{#each statCards as card}
-				<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5 shadow-sm">
+				<div class="pt-card">
 					<div class="flex items-start justify-between">
 						<div>
 							{#if statsLoading}
-								<div class="h-8 w-24 bg-gray-100 dark:bg-gray-800 rounded animate-pulse mb-1"></div>
-								<div class="h-4 w-32 bg-gray-100 dark:bg-gray-800 rounded animate-pulse"></div>
+								<div class="h-7 w-24 rounded animate-pulse mb-1" style="background: var(--pt-bg-3);"></div>
+								<div class="h-3 w-28 rounded animate-pulse" style="background: var(--pt-bg-3);"></div>
 							{:else}
-								<p class="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{fmt(card.value)}</p>
-								<p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{card.label}</p>
+								<p class="text-xl font-bold tabular-nums pt-data"
+								   style="color: {card.color === 'blue' ? '#68b9e5' : card.color === 'violet' ? '#ad99ff' : '#3dcc91'};">
+									{fmt(card.value)}
+								</p>
+								<p class="text-xs mt-0.5" style="color: var(--pt-text-muted);">{card.label}</p>
 							{/if}
 						</div>
-						<div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0
-							{card.color === 'blue' ? 'bg-blue-50 dark:bg-blue-950' : card.color === 'violet' ? 'bg-violet-50 dark:bg-violet-950' : 'bg-emerald-50 dark:bg-emerald-950'}">
-							<svg class="w-5 h-5 {card.color === 'blue' ? 'text-blue-600 dark:text-blue-400' : card.color === 'violet' ? 'text-violet-600 dark:text-violet-400' : 'text-emerald-600 dark:text-emerald-400'}"
-								fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+						<div class="w-8 h-8 flex items-center justify-center shrink-0"
+						     style="background: var(--pt-bg-2); border-radius: 2px;">
+							<svg class="w-4 h-4"
+							     style="color: {card.color === 'blue' ? '#68b9e5' : card.color === 'violet' ? '#ad99ff' : '#3dcc91'};"
+							     fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
 								{@html card.icon}
 							</svg>
 						</div>
@@ -121,22 +122,25 @@
 
 		<!-- Feature cards -->
 		<div>
-			<h2 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Explore</h2>
-			<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+			<h2 class="pt-label mb-3">Explore</h2>
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 				{#each featureCards as card}
 					<a href={card.href}
-						class="group bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm
-						       hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 transition-all">
-						<div class="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-950 flex items-center justify-center mb-4">
-							<svg class="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+					   class="pt-card group block transition-colors"
+					   onmouseover={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--pt-blue)'; }}
+					   onmouseout={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--pt-border-muted)'; }}>
+						<div class="w-8 h-8 flex items-center justify-center mb-3"
+						     style="background: var(--pt-blue-tint); border-radius: 2px;">
+							<svg class="w-4 h-4" style="color: var(--pt-blue);"
+							     fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
 								{@html card.icon}
 							</svg>
 						</div>
-						<h3 class="font-semibold text-gray-900 dark:text-gray-100 mb-1">{card.title}</h3>
-						<p class="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-4">{card.description}</p>
-						<span class="inline-flex items-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400 group-hover:gap-2 transition-all">
-							Explore
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+						<h3 class="text-sm font-semibold mb-1" style="color: var(--pt-text-primary);">{card.title}</h3>
+						<p class="text-xs leading-relaxed mb-3" style="color: var(--pt-text-muted);">{card.description}</p>
+						<span class="inline-flex items-center gap-1 text-xs font-semibold" style="color: var(--pt-blue);">
+							Open
+							<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
 							</svg>
 						</span>

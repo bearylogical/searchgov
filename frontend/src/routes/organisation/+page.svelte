@@ -26,9 +26,10 @@
 	let headcount = $state<number | null>(null);
 	let loadingHeadcount = $state(false);
 	let vizTruncated = $state(false);
-	let vizEl = $state<HTMLDivElement | undefined>(); // $state for bind:this; tick() handles timing
+	let vizEl = $state<HTMLDivElement | undefined>();
 	let vizSearch = $state('');
 	let expandedIds = $state(new Set<string>());
+	let sidebarCollapsed = $state(false); // mobile collapse
 
 	let debounceTimer: ReturnType<typeof setTimeout>;
 	let sliderTimer: ReturnType<typeof setTimeout>;
@@ -77,6 +78,8 @@
 		selectedDate = '';
 		headcount = null;
 		loadingTree = true;
+		// Auto-collapse sidebar on mobile after selection
+		if (window.innerWidth < 1024) sidebarCollapsed = true;
 		try {
 			[tree, timeline] = await Promise.all([
 				organisations.tree(org.id),
@@ -89,7 +92,6 @@
 		} finally {
 			loadingTree = false;
 		}
-		// Fetch headcount at the selected snapshot (non-blocking)
 		fetchHeadcount(org.id, selectedDate);
 	}
 
@@ -177,12 +179,11 @@
 	type TN = { id: string; pid: string | null; name: string };
 
 	$effect(() => {
-		// Explicitly track vizEl so the effect re-runs when bind:this assigns it
 		const el = vizEl;
 		const sel = selected;
 		const currentTree = tree;
 		const loading = loadingTree;
-		const q = vizSearch; // track so search re-renders highlight without rebuilding data
+		const q = vizSearch;
 		const expanded = expandedIds;
 		if (!el || !sel || loading || !currentTree.length) return;
 		vizTruncated = renderTree(el, sel, currentTree, q, expanded);
@@ -190,10 +191,8 @@
 
 	function renderTree(container: HTMLDivElement, root: OrgResult, desc: OrgResult[], highlight = '', expanded: Set<string> = new Set()): boolean {
 		const q = highlight.trim().toLowerCase();
-		// Short display name: use rightmost segment after ":"
 		const shortName = (n: string) => n.split(':').pop()?.trim() ?? n;
 
-		// Word-wrap helper — returns array of lines
 		const wrapLines = (text: string, maxChars: number): string[] => {
 			const words = text.split(/\s+/);
 			const lines: string[] = [];
@@ -207,23 +206,18 @@
 			return lines;
 		};
 
-		// Build deduplicated node list
 		const seen = new Set<string>();
 		const rawNodes: TN[] = [];
 		const add = (n: TN) => { if (!seen.has(n.id)) { seen.add(n.id); rawNodes.push(n); } };
 		add({ id: String(root.id), pid: null, name: root.name });
-		// First pass: collect all valid IDs so orphan detection works in one scan
 		const validIds = new Set<string>([String(root.id)]);
 		for (const d of desc) validIds.add(String(d.id));
 		for (const d of desc) {
 			const rawPid = d.parent_org_id != null ? String(d.parent_org_id) : null;
-			// If parent exists in the tree use it; otherwise attach directly to root
-			// (guards against dissolved intermediate orgs leaving dangling refs)
 			const pid = rawPid && validIds.has(rawPid) ? rawPid : String(root.id);
 			add({ id: String(d.id), pid, name: d.name });
 		}
 
-		// Stratify
 		let hier: d3.HierarchyNode<TN>;
 		try {
 			hier = d3.stratify<TN>().id((n) => n.id).parentId((n) => n.pid)(rawNodes);
@@ -231,13 +225,11 @@
 			return false;
 		}
 
-		// Track which nodes have children in the full (unpruned) tree
 		const fullCount = hier.descendants().length;
 		const hasChildren = new Set<string>();
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		hier.each((n: any) => { if (n.children?.length) hasChildren.add(n.data.id); });
 
-		// Search-driven auto-expansion: ancestors of matching nodes (only when q >= 2 chars)
 		const searchAutoExpand = new Set<string>();
 		if (q.length >= 2) {
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -249,7 +241,6 @@
 			});
 		}
 
-		// Prune: depth ≥ 2 is hidden unless explicitly expanded or search-revealed
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		hier.each((n: any) => {
 			if (n.depth < 2) return;
@@ -259,10 +250,10 @@
 		const truncated = fullCount > hier.descendants().length;
 
 		const W = container.clientWidth || 800;
-		const H = 520;
-		const R = Math.min(W, H) / 2 - 80;
+		// Responsive height: use container height or clamp between 280–600px
+		const H = Math.max(280, Math.min(container.clientHeight || 480, 600));
+		const R = Math.min(W, H) / 2 - 60;
 
-		// Preserve zoom transform when re-rendering (e.g. expand click, search keystroke)
 		const prevSvg = d3.select(container).select<SVGSVGElement>('svg').node();
 		const savedTransform = prevSvg ? d3.zoomTransform(prevSvg) : null;
 		const isFirstRender = !savedTransform;
@@ -275,7 +266,8 @@
 			.attr('width', W)
 			.attr('height', H)
 			.style('display', 'block')
-			.style('cursor', 'grab');
+			.style('cursor', 'grab')
+			.style('background', '#1C2127'); // Palantir bg
 
 		const g = svg.append('g');
 
@@ -285,37 +277,33 @@
 			.on('zoom', (e) => g.attr('transform', e.transform.toString()));
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		(svg as any).call(zoom);
-
-		// Apply saved or initial transform. Radial tree renders around (0,0) so
-		// we must translate to SVG center on first render; subsequent renders restore
-		// the user's current zoom/pan so expand clicks don't jump the view.
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		(svg as any).call(zoom.transform, savedTransform ?? d3.zoomIdentity.translate(W / 2, H / 2));
 
-		// Radial tree layout
 		d3.tree<TN>().size([2 * Math.PI, R])(hier);
 
-		const palette = ['#7c3aed', '#8b5cf6', '#a78bfa', '#c4b5fd', '#ede9fe'];
+		// Palantir violet palette for dark background
+		const palette = ['#ad99ff', '#9179f2', '#7961db', '#634DBF', '#4E3CA0'];
+		const borderColor = '#394B59';
 
-		// Links — radial curves
+		// Links
 		g.selectAll('path.link')
 			.data(hier.links())
 			.join('path')
 			.attr('class', 'link')
 			.attr('fill', 'none')
-			.attr('stroke', '#e5e7eb')
+			.attr('stroke', borderColor)
 			.attr('stroke-width', 1)
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.attr('opacity', (d: any) => {
-				if (!q) return 1;
+				if (!q) return 0.6;
 				const srcMatch = d.source.data.name.toLowerCase().includes(q);
 				const tgtMatch = d.target.data.name.toLowerCase().includes(q);
-				return srcMatch || tgtMatch ? 0.7 : 0.06;
+				return srcMatch || tgtMatch ? 0.8 : 0.08;
 			})
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.attr('d', (d3.linkRadial() as any).angle((d: any) => d.x).radius((d: any) => d.y));
 
-		// Node groups — polar → cartesian via rotate+translate
 		const nodeG = g
 			.selectAll('g.node')
 			.data(hier.descendants())
@@ -328,7 +316,6 @@
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.style('cursor', (d: any) => hasChildren.has(d.data.id) ? 'pointer' : 'default');
 
-		// Click: toggle expanded set (triggers Svelte effect → re-render)
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		nodeG.on('click', (event: MouseEvent, d: any) => {
 			if (!hasChildren.has(d.data.id)) return;
@@ -345,32 +332,32 @@
 			.attr('r', (d: any) => (d.depth === 0 ? 7 : d.depth === 1 ? 5 : 3))
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.attr('fill', (d: any) => {
-				if (q && d.data.name.toLowerCase().includes(q)) return '#f59e0b';
+				if (q && d.data.name.toLowerCase().includes(q)) return '#D9822B'; // gold highlight
 				return palette[Math.min(d.depth, palette.length - 1)];
 			})
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.attr('opacity', (d: any) => (!q || d.data.name.toLowerCase().includes(q) ? 1 : 0.15))
+			.attr('opacity', (d: any) => (!q || d.data.name.toLowerCase().includes(q) ? 1 : 0.12))
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.attr('stroke', (d: any) => {
-				if (q && d.data.name.toLowerCase().includes(q)) return '#d97706'; // search match: amber
-				if (!hasChildren.has(d.data.id)) return '#fff';
+				if (q && d.data.name.toLowerCase().includes(q)) return '#BF7326';
+				if (!hasChildren.has(d.data.id)) return 'none';
 				const isExp = expanded.has(d.data.id) || searchAutoExpand.has(d.data.id);
-				return isExp ? '#7c3aed' : '#9ca3af'; // expanded: violet; collapsed-expandable: gray
+				return isExp ? '#ad99ff' : '#5C7080';
 			})
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.attr('stroke-dasharray', (d: any) => {
 				if (!hasChildren.has(d.data.id)) return null;
 				const isExp = expanded.has(d.data.id) || searchAutoExpand.has(d.data.id);
-				return isExp ? null : '3,2'; // dashed = has hidden children
+				return isExp ? null : '3,2';
 			})
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.attr('stroke-width', (d: any) => (hasChildren.has(d.data.id) ? 2 : 1.5));
+			.attr('stroke-width', (d: any) => (hasChildren.has(d.data.id) ? 1.5 : 1));
 
 		nodeG.append('title').text((d) => d.data.name);
 
-		// Labels: root + depth-1 only (depth-2 nodes are dot-only with a hover tooltip)
+		// Labels
 		nodeG.each(function (d: any) {
-			if (d.depth >= 2) return; // depth-2: tooltip only, skip text to avoid clutter
+			if (d.depth >= 2) return;
 			const grp = d3.select(this);
 			const label = d.depth === 0 ? d.data.name : shortName(d.data.name);
 			const maxChars = d.depth === 0 ? 22 : 14;
@@ -388,9 +375,9 @@
 				.attr('transform', !isRoot && isLeft ? 'rotate(180)' : (null as any))
 				.attr('text-anchor', anchor)
 				.attr('font-size', isRoot ? 11 : 9)
-				.attr('fill', q && matches ? '#92400e' : '#374151')
+				.attr('fill', q && matches ? '#D9822B' : '#ABB3BF')
 				.attr('font-weight', q && matches ? '600' : 'normal')
-				.attr('opacity', matches ? 1 : 0.2);
+				.attr('opacity', matches ? 1 : 0.15);
 
 			lines.forEach((line, i) => {
 				text.append('tspan')
@@ -400,8 +387,6 @@
 			});
 		});
 
-		// Auto-fit on first render only; subsequent renders (expand/search) preserve
-		// the user's current zoom/pan position via savedTransform above.
 		if (isFirstRender) {
 			requestAnimationFrame(() => {
 				const bb = (g.node() as SVGGElement)?.getBBox();
@@ -412,7 +397,6 @@
 					bb.height > 0 ? (H - pad) / bb.height : 1,
 					1
 				);
-				// bb is in g's local space (around 0,0); map to SVG viewport center
 				const tx = W / 2 - (bb.x + bb.width / 2) * sc;
 				const ty = H / 2 - (bb.y + bb.height / 2) * sc;
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -428,318 +412,239 @@
 	let showMinHeader = $derived(!query.trim() && !loadingRoots);
 </script>
 
-<div
-	class="flex-1 flex flex-col lg:flex-row overflow-hidden"
-	style="height: calc(100vh - 3.5rem - 49px)"
->
+<div class="flex-1 flex flex-col lg:flex-row min-h-0">
+
 	<!-- ── Left sidebar ─────────────────────────────────────────────────────── -->
-	<aside
-		class="w-full lg:w-72 xl:w-80 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
-	>
+	<aside class="w-full lg:w-72 xl:w-80 shrink-0 flex flex-col"
+	       style="background: var(--pt-bg-1); border-right: 1px solid var(--pt-border);">
+
 		<!-- Search header -->
-		<div class="p-4 border-b border-gray-100 dark:border-gray-800">
-			<h1 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
-				Organisation Explorer
-			</h1>
-			<div class="relative">
-				<svg
-					class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					viewBox="0 0 24 24"
+		<div class="p-4 flex-none" style="border-bottom: 1px solid var(--pt-border-muted);">
+			<div class="flex items-center justify-between mb-3">
+				<h1 class="pt-label">Organisation Explorer</h1>
+				<!-- Mobile collapse toggle -->
+				<button
+					onclick={() => (sidebarCollapsed = !sidebarCollapsed)}
+					class="lg:hidden flex items-center gap-1 text-xs px-2 py-1 transition-colors"
+					style="color: var(--pt-text-muted); border: 1px solid var(--pt-border); border-radius: 2px;"
 				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-					/>
+					{sidebarCollapsed ? 'Show' : 'Hide'}
+					<svg class="w-3 h-3 transition-transform {sidebarCollapsed ? 'rotate-180' : ''}"
+					     fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5"/>
+					</svg>
+				</button>
+			</div>
+			<div class="relative">
+				<svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+				     style="color: var(--pt-text-muted);" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
 				</svg>
 				<input
 					type="text"
 					placeholder="Search organisations…"
 					bind:value={query}
 					oninput={onInput}
-					class="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm
-					       bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400
-					       focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-colors"
+					class="pt-input pl-8"
 				/>
 			</div>
 		</div>
 
-		<!-- Section label -->
-		{#if showMinHeader}
-			<div
-				class="px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between"
-			>
-				<span class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500"
-					>Ministries</span
-				>
-				{#if roots.length}
-					<span class="text-xs text-gray-400">{roots.length}</span>
+		<!-- Collapsible list body -->
+		{#if !sidebarCollapsed}
+			{#if showMinHeader}
+				<div class="px-4 py-2 flex items-center justify-between flex-none"
+				     style="background: var(--pt-bg-0); border-bottom: 1px solid var(--pt-border-muted);">
+					<span class="pt-label">Ministries</span>
+					{#if roots.length}
+						<span class="text-xs" style="color: var(--pt-text-muted); font-family: var(--font-mono);">{roots.length}</span>
+					{/if}
+				</div>
+			{/if}
+
+			<div class="flex-1 overflow-y-auto lg:max-h-none" style="max-height: 40vh;">
+				{#if (loadingRoots && !query) || searching}
+					<div class="p-3 space-y-1">
+						{#each Array(7) as _}
+							<div class="h-10 rounded animate-pulse" style="background: var(--pt-bg-2);"></div>
+						{/each}
+					</div>
+				{:else if searchError}
+					<div class="p-4">
+						<p class="text-sm" style="color: var(--pt-red);">{searchError}</p>
+					</div>
+				{:else if query && !results.length}
+					<div class="p-8 text-center">
+						<p class="text-sm" style="color: var(--pt-text-muted);">No results for "{query}"</p>
+					</div>
+				{:else}
+					<ul class="py-1">
+						{#each sidebarItems as org (org.id)}
+							<li>
+								<button
+									onclick={() => selectOrg(org)}
+									class="w-full text-left px-3 py-2.5 flex items-center gap-3 transition-colors"
+									style={selected?.id === org.id
+										? 'background: var(--pt-violet-tint); border-left: 2px solid var(--pt-violet); color: #ad99ff;'
+										: 'color: var(--pt-text-secondary);'}
+									onmouseover={(e) => {
+										if (selected?.id !== org.id) (e.currentTarget as HTMLElement).style.background = 'var(--pt-bg-3)';
+									}}
+									onmouseout={(e) => {
+										if (selected?.id !== org.id) (e.currentTarget as HTMLElement).style.background = '';
+									}}
+								>
+									<div class="w-6 h-6 flex items-center justify-center shrink-0 transition-colors"
+									     style="background: {selected?.id === org.id ? 'var(--pt-violet)' : 'var(--pt-bg-2)'}; border-radius: 2px;">
+										<svg class="w-3 h-3"
+										     style="color: {selected?.id === org.id ? '#fff' : 'var(--pt-text-muted)'};"
+										     fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round"
+											      d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+										</svg>
+									</div>
+									<div class="min-w-0 flex-1">
+										<p class="text-xs font-medium truncate leading-tight">
+											{org.name}
+										</p>
+										{#if org.department}
+											<p class="text-xs truncate mt-0.5" style="color: var(--pt-text-muted);">
+												{org.department}
+											</p>
+										{/if}
+									</div>
+								</button>
+							</li>
+						{/each}
+					</ul>
 				{/if}
 			</div>
 		{/if}
-
-		<!-- List -->
-		<div class="flex-1 overflow-y-auto">
-			{#if (loadingRoots && !query) || searching}
-				<div class="p-3 space-y-1">
-					{#each Array(7) as _}
-						<div class="h-11 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse"></div>
-					{/each}
-				</div>
-			{:else if searchError}
-				<div class="p-4">
-					<p class="text-sm text-red-500">{searchError}</p>
-				</div>
-			{:else if query && !results.length}
-				<div class="p-8 text-center">
-					<svg
-						class="w-7 h-7 text-gray-300 dark:text-gray-600 mx-auto mb-2"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="1.5"
-						viewBox="0 0 24 24"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M15.75 15.75l-2.489-2.489m0 0a3.375 3.375 0 10-4.773-4.773 3.375 3.375 0 004.774 4.774zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-						/>
-					</svg>
-					<p class="text-sm text-gray-400 dark:text-gray-500">No results for "{query}"</p>
-				</div>
-			{:else}
-				<ul class="py-1">
-					{#each sidebarItems as org (org.id)}
-						<li>
-							<button
-								onclick={() => selectOrg(org)}
-								class="w-full text-left px-3 py-2.5 flex items-center gap-3 transition-colors
-								       hover:bg-gray-50 dark:hover:bg-gray-800
-								       {selected?.id === org.id
-									? 'bg-violet-50 dark:bg-violet-900/20 border-r-2 border-violet-500'
-									: ''}"
-							>
-								<div
-									class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-colors
-									       {selected?.id === org.id
-										? 'bg-violet-600'
-										: 'bg-gray-100 dark:bg-gray-800'}"
-								>
-									<svg
-										class="w-3.5 h-3.5 {selected?.id === org.id
-											? 'text-white'
-											: 'text-gray-500 dark:text-gray-400'}"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="1.5"
-										viewBox="0 0 24 24"
-									>
-										<path
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"
-										/>
-									</svg>
-								</div>
-								<div class="min-w-0 flex-1">
-									<p
-										class="text-sm font-medium truncate leading-tight
-										       {selected?.id === org.id
-											? 'text-violet-700 dark:text-violet-300'
-											: 'text-gray-900 dark:text-gray-100'}"
-									>
-										{org.name}
-									</p>
-									{#if org.department}
-										<p class="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
-											{org.department}
-										</p>
-									{/if}
-								</div>
-							</button>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</div>
 	</aside>
 
 	<!-- ── Right panel ──────────────────────────────────────────────────────── -->
-	<section class="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-950">
+	<section class="flex-1 overflow-y-auto" style="background: var(--pt-bg-0);">
 		{#if !selected}
 			<!-- Welcome state -->
-			<div class="h-full flex items-center justify-center p-8">
+			<div class="h-full flex items-center justify-center p-8 min-h-[50vh]">
 				<div class="text-center max-w-xs">
-					<div
-						class="w-16 h-16 rounded-2xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center mx-auto mb-4"
-					>
-						<svg
-							class="w-8 h-8 text-violet-500"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.5"
-							viewBox="0 0 24 24"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21"
-							/>
+					<div class="w-14 h-14 flex items-center justify-center mx-auto mb-4"
+					     style="background: var(--pt-violet-tint); border: 1px solid var(--pt-border); border-radius: 2px;">
+						<svg class="w-7 h-7" style="color: var(--pt-violet);" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round"
+							      d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21"/>
 						</svg>
 					</div>
-					<h2 class="text-base font-semibold text-gray-700 dark:text-gray-300 mb-1">
-						Select a Ministry
-					</h2>
-					<p class="text-sm text-gray-400 dark:text-gray-500 leading-relaxed">
-						Choose a ministry from the sidebar or search to explore its hierarchy, visualise the
-						structure, and track changes over time.
+					<h2 class="text-sm font-semibold mb-1" style="color: var(--pt-text-primary);">Select a Ministry</h2>
+					<p class="text-xs leading-relaxed" style="color: var(--pt-text-muted);">
+						Choose a ministry from the sidebar or search to explore its hierarchy and track changes over time.
 					</p>
 				</div>
 			</div>
 		{:else}
-			<div class="p-5 space-y-4 max-w-5xl mx-auto">
+			<div class="p-4 space-y-3 max-w-5xl mx-auto">
+
 				<!-- Org header -->
-				<div
-					class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm"
-				>
+				<div class="pt-card">
 					<div class="flex items-center gap-3">
-						<div
-							class="w-10 h-10 rounded-xl bg-violet-600 flex items-center justify-center shrink-0"
-						>
-							<svg
-								class="w-5 h-5 text-white"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.5"
-								viewBox="0 0 24 24"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"
-								/>
+						<div class="w-9 h-9 flex items-center justify-center shrink-0"
+						     style="background: var(--pt-violet); border-radius: 2px;">
+							<svg class="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round"
+								      d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
 							</svg>
 						</div>
 						<div class="min-w-0 flex-1">
-							<h2 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+							<h2 class="text-sm font-semibold leading-snug" style="color: var(--pt-text-primary);">
 								{selected.name}
 							</h2>
 							{#if selected.department}
-								<p class="text-sm text-gray-500 dark:text-gray-400">{selected.department}</p>
+								<p class="text-xs mt-0.5" style="color: var(--pt-text-muted);">{selected.department}</p>
 							{/if}
 						</div>
 						{#if selectedDate}
-							<span
-								class="text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300
-								       px-2.5 py-1 rounded-full font-medium shrink-0"
-							>
-								{fmt(selectedDate)}
-							</span>
+							<span class="pt-tag pt-tag-violet shrink-0">{fmt(selectedDate)}</span>
 						{/if}
 					</div>
 				</div>
 
-				<!-- Stats cards -->
-				<div class="grid grid-cols-3 gap-3">
+				<!-- Stats cards — responsive grid -->
+				<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
 					<!-- Sub-agencies -->
-					<div
-						class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm"
-					>
+					<div class="pt-card">
 						{#if loadingTree}
-							<div
-								class="h-8 w-16 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse mb-1"
-							></div>
+							<div class="h-7 w-14 rounded animate-pulse mb-1" style="background: var(--pt-bg-3);"></div>
 						{:else}
-							<div class="text-2xl font-bold text-violet-600">
-								{metrics.total.toLocaleString()}
-							</div>
+							<div class="text-xl font-bold pt-data" style="color: #ad99ff;">{metrics.total.toLocaleString()}</div>
 						{/if}
-						<div class="text-xs font-medium text-gray-600 dark:text-gray-400 mt-1">
-							Sub-agencies
-						</div>
-						<div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">Total units</div>
+						<div class="text-xs font-medium mt-1" style="color: var(--pt-text-secondary);">Sub-agencies</div>
+						<div class="text-xs mt-0.5" style="color: var(--pt-text-muted);">Total units</div>
 					</div>
 
 					<!-- Hierarchy depth -->
-					<div
-						class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm"
-					>
+					<div class="pt-card">
 						{#if loadingTree}
-							<div
-								class="h-8 w-10 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse mb-1"
-							></div>
+							<div class="h-7 w-10 rounded animate-pulse mb-1" style="background: var(--pt-bg-3);"></div>
 						{:else}
-							<div class="text-2xl font-bold text-blue-600">{metrics.depth}</div>
+							<div class="text-xl font-bold pt-data" style="color: #68b9e5;">{metrics.depth}</div>
 						{/if}
-						<div class="text-xs font-medium text-gray-600 dark:text-gray-400 mt-1">
-							Hierarchy depth
-						</div>
-						<div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">Levels below root</div>
+						<div class="text-xs font-medium mt-1" style="color: var(--pt-text-secondary);">Hierarchy depth</div>
+						<div class="text-xs mt-0.5" style="color: var(--pt-text-muted);">Levels below root</div>
 					</div>
 
 					<!-- Employees at snapshot -->
-					<div
-						class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm"
-					>
+					<div class="pt-card">
 						{#if loadingHeadcount}
-							<div
-								class="h-8 w-14 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse mb-1"
-							></div>
+							<div class="h-7 w-12 rounded animate-pulse mb-1" style="background: var(--pt-bg-3);"></div>
 						{:else}
-							<div class="text-2xl font-bold text-emerald-600">
+							<div class="text-xl font-bold pt-data" style="color: #3dcc91;">
 								{headcount !== null ? headcount.toLocaleString() : '—'}
 							</div>
 						{/if}
-						<div class="text-xs font-medium text-gray-600 dark:text-gray-400 mt-1">Employees</div>
-						<div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
+						<div class="text-xs font-medium mt-1" style="color: var(--pt-text-secondary);">Employees</div>
+						<div class="text-xs mt-0.5" style="color: var(--pt-text-muted);">
 							At {selectedDate ? fmt(selectedDate) : 'snapshot'}
 						</div>
 					</div>
 				</div>
 
 				<!-- D3 hierarchy map -->
-				<div
-					class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden"
-				>
-					<div
-						class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-3"
-					>
+				<div class="pt-card" style="padding: 0; overflow: hidden;">
+					<div class="px-4 py-2.5 flex items-center justify-between gap-3 flex-none"
+					     style="border-bottom: 1px solid var(--pt-border-muted);">
 						<div class="flex items-center gap-2 min-w-0">
-							<h3 class="text-sm font-medium text-gray-900 dark:text-gray-100 shrink-0">Hierarchy Map</h3>
-							<span class="text-xs text-gray-400 dark:text-gray-500 hidden sm:inline"
-								>click node to expand · scroll to zoom · drag to pan</span
-							>
+							<h3 class="text-xs font-semibold" style="color: var(--pt-text-primary);">Hierarchy Map</h3>
+							<span class="text-xs hidden sm:inline" style="color: var(--pt-text-muted);">
+								click node to expand · scroll to zoom · drag to pan
+							</span>
 						</div>
 						<div class="flex items-center gap-2 shrink-0">
 							{#if vizTruncated}
-								<span
-									class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full hidden md:inline"
-								>
+								<span class="pt-tag pt-tag-orange hidden md:inline-flex">
 									2 levels of {metrics.total + 1}
 								</span>
 							{/if}
 							{#if tree.length}
 								<div class="relative">
-									<svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none"
-										 fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+									<svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 pointer-events-none"
+									     style="color: var(--pt-text-muted);"
+									     fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round"
-											d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+										      d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
 									</svg>
 									<input
 										type="text"
 										bind:value={vizSearch}
 										placeholder="Highlight agency…"
-										class="text-xs pl-7 pr-6 py-1.5 w-36 border border-gray-200 dark:border-gray-700 rounded-lg
-										       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 placeholder-gray-400
-										       focus:outline-none focus:ring-1 focus:ring-violet-500/40 focus:border-violet-400 transition-colors"
+										class="text-xs pl-7 pr-6 py-1.5 w-32"
+										style="background: var(--pt-bg-0); border: 1px solid var(--pt-border); border-radius: 2px;
+										       color: var(--pt-text-primary); outline: none;"
 									/>
 									{#if vizSearch}
 										<button
 											onclick={() => (vizSearch = '')}
-											class="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm leading-none px-0.5"
+											class="absolute right-1.5 top-1/2 -translate-y-1/2 text-sm leading-none px-0.5"
+											style="color: var(--pt-text-muted);"
 											aria-label="Clear"
 										>×</button>
 									{/if}
@@ -747,19 +652,19 @@
 							{/if}
 						</div>
 					</div>
-					<div class="relative" style="height: 520px">
+					<!-- Responsive viz container: clamp height for mobile -->
+					<div class="relative w-full" style="height: clamp(280px, 50vh, 580px);">
 						{#if loadingTree}
-							<div class="absolute inset-0 flex items-center justify-center">
+							<div class="absolute inset-0 flex items-center justify-center" style="background: #1C2127;">
 								<div class="flex flex-col items-center gap-3">
-									<div
-										class="w-8 h-8 border-[3px] border-violet-500 border-t-transparent rounded-full animate-spin"
-									></div>
-									<p class="text-sm text-gray-400">Loading hierarchy…</p>
+									<div class="w-7 h-7 border-2 rounded-full animate-spin"
+									     style="border-color: var(--pt-violet); border-top-color: transparent;"></div>
+									<p class="text-xs" style="color: var(--pt-text-muted);">Loading hierarchy…</p>
 								</div>
 							</div>
 						{:else if !tree.length}
 							<div class="absolute inset-0 flex items-center justify-center">
-								<p class="text-sm text-gray-400 dark:text-gray-500">
+								<p class="text-xs" style="color: var(--pt-text-muted);">
 									No sub-organisations at this snapshot
 								</p>
 							</div>
@@ -771,27 +676,22 @@
 
 				<!-- Timeline slider -->
 				{#if timeline.length > 1}
-					<div
-						class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm"
-					>
-						<!-- Header -->
+					<div class="pt-card">
 						<div class="flex items-center justify-between mb-4">
 							<div>
-								<span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-									Snapshot
-								</span>
+								<span class="pt-label">Snapshot</span>
 								{#if loadingTree}
-									<div class="h-5 w-24 bg-gray-100 dark:bg-gray-800 rounded animate-pulse mt-1"></div>
+									<div class="h-5 w-24 rounded animate-pulse mt-1" style="background: var(--pt-bg-3);"></div>
 								{:else}
-									<p class="text-lg font-bold text-violet-600 mt-0.5 leading-none">{fmt(selectedDate)}</p>
+									<p class="text-base font-bold mt-0.5 leading-none pt-data" style="color: #ad99ff;">{fmt(selectedDate)}</p>
 								{/if}
 							</div>
-							<span class="text-xs tabular-nums text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full">
+							<span class="text-xs tabular-nums pt-data px-2 py-1"
+							      style="color: var(--pt-text-muted); background: var(--pt-bg-2); border-radius: 2px;">
 								{sliderIdx + 1} / {timeline.length}
 							</span>
 						</div>
 
-						<!-- Slider track + thumb -->
 						<div class="relative px-1">
 							<input
 								type="range"
@@ -800,20 +700,17 @@
 								step="1"
 								bind:value={sliderIdx}
 								oninput={onSliderInput}
-								class="w-full h-2 rounded-full appearance-none cursor-pointer accent-violet-600
-								       bg-gray-200 dark:bg-gray-700"
+								class="w-full h-2 rounded-none appearance-none cursor-pointer"
+								style="accent-color: var(--pt-violet);"
 							/>
 						</div>
 
-						<!-- Year tick marks -->
 						<div class="relative mt-3 h-6 px-1">
 							{#each yearTicks as tick}
-								<div
-									class="absolute flex flex-col items-center"
-									style="left: {tick.pct}%; transform: translateX(-50%)"
-								>
-									<div class="w-px h-2 bg-gray-300 dark:bg-gray-600"></div>
-									<span class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 tabular-nums">
+								<div class="absolute flex flex-col items-center"
+								     style="left: {tick.pct}%; transform: translateX(-50%)">
+									<div class="w-px h-2" style="background: var(--pt-border);"></div>
+									<span class="text-xs mt-0.5 tabular-nums pt-data" style="color: var(--pt-text-muted);">
 										{tick.year}
 									</span>
 								</div>
@@ -821,7 +718,6 @@
 						</div>
 					</div>
 				{/if}
-
 
 			</div>
 		{/if}

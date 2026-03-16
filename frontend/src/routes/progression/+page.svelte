@@ -143,11 +143,12 @@
 	function isSamePerson(e: EmploymentEntry) { return !selected || e.person_id == null || e.person_id === selected.id; }
 </script>
 
-<div class="flex-1 flex flex-col lg:flex-row overflow-hidden" style="height: calc(100vh - 3.5rem - 49px)">
+<div class="flex-1 flex flex-col lg:flex-row min-h-0">
 	<!-- ── Left panel ─────────────────────────────────── -->
-	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-		<div class="p-4 border-b border-gray-100 dark:border-gray-800 space-y-3">
-			<h1 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Career Progression</h1>
+	<aside class="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col"
+	       style="background: var(--pt-bg-1); border-right: 1px solid var(--pt-border);">
+		<div class="p-4 space-y-3 flex-none" style="border-bottom: 1px solid var(--pt-border-muted);">
+			<h1 class="pt-label">Career Progression</h1>
 
 			<PersonSearch
 				placeholder="Search by name…"
@@ -162,17 +163,17 @@
 
 		<!-- Name variants (shown below search when selected) -->
 		{#if selected && !loadingCareer && nameVariants.length > 0}
-			<div class="p-4 border-b border-gray-100 dark:border-gray-800 space-y-2">
+			<div class="p-4 space-y-2 overflow-y-auto lg:max-h-none" style="border-bottom: 1px solid var(--pt-border-muted); max-height: 35vh;">
 				<div class="flex items-center justify-between">
-					<p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-						Name variants — drag between zones to adjust timeline
-					</p>
+					<p class="pt-label">Name variants</p>
 					{#if isDirty}
-						<button onclick={reset} class="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+						<button onclick={reset} class="text-xs transition-colors"
+						        style="color: var(--pt-blue);">
 							Reset
 						</button>
 					{/if}
 				</div>
+				<p class="text-xs" style="color: var(--pt-text-muted);">Drag between zones to adjust timeline</p>
 				<NameVariantZones
 					{nameVariants}
 					{activeNames}
@@ -184,125 +185,128 @@
 	</aside>
 
 	<!-- ── Right panel ────────────────────────────────── -->
-	<section class="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-950">
+	<section class="flex-1 overflow-y-auto" style="background: var(--pt-bg-0);">
 		{#if !selected}
-			<div class="h-full flex items-center justify-center p-8">
+			<div class="flex items-center justify-center p-8 min-h-[50vh]">
 				<div class="text-center">
-					<svg class="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
+					<svg class="w-10 h-10 mx-auto mb-3" style="color: var(--pt-border);"
+					     fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
 					</svg>
-					<p class="text-sm text-gray-400">Select a person to view their career history</p>
+					<p class="text-sm" style="color: var(--pt-text-muted);">Select a person to view their career history</p>
 				</div>
 			</div>
 		{:else}
-			<div class="p-6 space-y-6">
+			<div class="p-4 space-y-4">
 
 				<!-- Profile header -->
-				<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
-					<div class="flex items-center gap-4">
-						<div class="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg shrink-0">
+				<div class="pt-card">
+					<div class="flex items-center gap-3">
+						<!-- Blueprint-style monogram: flat square, not circle -->
+						<div class="w-10 h-10 flex items-center justify-center text-white font-bold text-sm shrink-0"
+						     style="background: var(--pt-blue); border-radius: 2px; font-family: var(--font-mono);">
 							{selected.name.slice(0, 2).toUpperCase()}
 						</div>
 						<div class="min-w-0 flex-1">
-							<h2 class="text-base font-semibold text-gray-900 dark:text-gray-100">{selected.name}</h2>
-							{#if selected.email}<p class="text-sm text-gray-500 truncate">{selected.email}</p>{/if}
-							{#if selected.tel}<p class="text-xs text-gray-400">{selected.tel}</p>{/if}
+							<h2 class="text-sm font-semibold leading-snug" style="color: var(--pt-text-primary);">{selected.name}</h2>
+							{#if selected.email}<p class="text-xs truncate mt-0.5" style="color: var(--pt-text-muted);">{selected.email}</p>{/if}
+							{#if selected.tel}<p class="text-xs mt-0.5 pt-data" style="color: var(--pt-text-muted);">{selected.tel}</p>{/if}
 						</div>
 						{#if !loadingCareer && career.length > 0}
 							<div class="shrink-0 text-right">
-								<p class="text-lg font-bold text-gray-900 dark:text-gray-100">{career.length}</p>
-								<p class="text-xs text-gray-400">{career.length !== originalCareer.length ? `of ${originalCareer.length} ` : ''}roles</p>
+								<p class="text-base font-bold pt-data" style="color: var(--pt-text-primary);">{career.length}</p>
+								<p class="text-xs" style="color: var(--pt-text-muted);">{career.length !== originalCareer.length ? `of ${originalCareer.length} ` : ''}roles</p>
 							</div>
 						{/if}
 					</div>
 				</div>
 
 				{#if loadingCareer}
-					<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-						<div class="space-y-3">
+					<div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+						<div class="space-y-2">
 							{#each Array(5) as _}
 								<div class="flex gap-4">
-									<div class="w-3 h-3 rounded-full bg-gray-200 dark:bg-gray-700 mt-1.5 animate-pulse shrink-0"></div>
-									<div class="flex-1 h-20 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse"></div>
+									<div class="w-2.5 h-2.5 rounded-full mt-1.5 animate-pulse shrink-0" style="background: var(--pt-bg-3);"></div>
+									<div class="flex-1 h-16 rounded animate-pulse" style="background: var(--pt-bg-2);"></div>
 								</div>
 							{/each}
 						</div>
-						<div class="h-64 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse"></div>
+						<div class="h-48 rounded animate-pulse" style="background: var(--pt-bg-2);"></div>
 					</div>
 				{:else if careerError}
 					<div class="text-center py-12">
-						<p class="text-sm text-red-500">{careerError}</p>
+						<p class="text-sm" style="color: var(--pt-red);">{careerError}</p>
 					</div>
 				{:else if career.length === 0}
 					<div class="text-center py-12">
-						<p class="text-sm text-gray-400 mb-3">No records match the current filters.</p>
+						<p class="text-sm mb-3" style="color: var(--pt-text-muted);">No records match the current filters.</p>
 						{#if isDirty}
-							<button onclick={reset} class="text-sm text-blue-600 hover:underline">Reset filters</button>
+							<button onclick={reset} class="text-sm" style="color: var(--pt-blue);">Reset filters</button>
 						{/if}
 					</div>
 				{:else}
-					<div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+					<div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
 
 						<!-- ── Career Timeline ──────────── -->
 						<div>
-							<h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
-								Career Timeline
-							</h3>
+							<h3 class="pt-label mb-3">Career Timeline</h3>
 							<div class="relative">
-								<div class="absolute left-[5px] top-2 bottom-2 w-px bg-gray-200 dark:bg-gray-700"></div>
-								<ul class="space-y-3">
+								<div class="absolute left-[5px] top-2 bottom-2 w-px" style="background: var(--pt-border-muted);"></div>
+								<ul class="space-y-2">
 									{#each career as entry}
 										<li class="pl-7 relative group {!isSamePerson(entry) ? 'opacity-60' : ''}">
-											<div class="absolute left-0 top-3.5 w-[11px] h-[11px] rounded-full border-2 border-white dark:border-gray-950 ring-1
-											            {isSamePerson(entry)
-											              ? (isActive(entry) ? 'bg-blue-500 ring-blue-400' : 'bg-gray-300 dark:bg-gray-600 ring-gray-200 dark:ring-gray-700')
-											              : 'bg-amber-400 ring-amber-300'}">
-											</div>
-											<div class="rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow
-											            {isSamePerson(entry)
-											              ? 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'
-											              : 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50'}">
+											<!-- Timeline dot -->
+											<div class="absolute left-0 top-3.5 w-[11px] h-[11px] border-2"
+											     style="border-radius: 50%; border-color: var(--pt-bg-0);
+											            box-shadow: 0 0 0 1px {isSamePerson(entry) ? (isActive(entry) ? 'var(--pt-green)' : 'var(--pt-border)') : 'var(--pt-orange)'};
+											            background: {isSamePerson(entry) ? (isActive(entry) ? 'var(--pt-green)' : 'var(--pt-bg-3)') : 'var(--pt-orange)'};"></div>
+
+											<!-- Entry card -->
+											<div class="p-3 transition-colors"
+											     style="background: {isSamePerson(entry) ? 'var(--pt-bg-1)' : 'var(--pt-orange-tint)'};
+											            border: 1px solid {isSamePerson(entry) ? 'var(--pt-border-muted)' : 'var(--pt-orange)'};
+											            border-radius: 2px;">
 												<div class="flex items-start justify-between gap-2">
 													<div class="min-w-0">
-														<p class="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{orgLabel(entry)}</p>
+														<p class="text-xs font-semibold leading-snug" style="color: var(--pt-text-primary);">{orgLabel(entry)}</p>
 														{#if entry.person_name && entry.person_name !== selected?.name}
-															<p class="text-xs text-gray-400 mt-0.5 italic">as {entry.person_name}</p>
+															<p class="text-xs mt-0.5 italic" style="color: var(--pt-text-muted);">as {entry.person_name}</p>
 														{/if}
 													</div>
-													<div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+													<div class="flex items-center gap-1 shrink-0 flex-wrap justify-end">
 														{#if !isSamePerson(entry)}
-															<span class="inline-flex items-center text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-full px-2 py-0.5">
-																Different person?
-															</span>
+															<span class="pt-tag pt-tag-orange">Different person?</span>
 														{/if}
 														{#if isLowConfidence(entry)}
-															<span class="inline-flex items-center text-xs font-medium text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-full px-2 py-0.5">
-																Low confidence
-															</span>
+															<span class="pt-tag pt-tag-violet">Low confidence</span>
 														{/if}
 														{#if isActive(entry)}
-															<span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-full px-2 py-0.5">
-																<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Active
+															<span class="pt-tag pt-tag-green">
+																<span class="w-1.5 h-1.5 rounded-full" style="background: var(--pt-green);"></span>Active
 															</span>
 														{/if}
+														<!-- Remove button: always visible on mobile (touch-friendly), hover-only on desktop -->
 														<button onclick={() => removeEntry(entry)} title="Remove this entry"
-															class="opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 flex items-center justify-center
-															       rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950">
-															<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+														        class="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity w-6 h-6 flex items-center justify-center"
+														        style="border-radius: 2px; color: var(--pt-text-muted);"
+														        onmouseover={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--pt-red)'; (e.currentTarget as HTMLElement).style.background = 'var(--pt-red-tint)'; }}
+														        onmouseout={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--pt-text-muted)'; (e.currentTarget as HTMLElement).style.background = ''; }}>
+															<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
 																<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
 															</svg>
 														</button>
 													</div>
 												</div>
 												{#if entry.rank}
-													<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">{entry.rank}</p>
+													<p class="text-xs mt-0.5" style="color: var(--pt-text-secondary);">{entry.rank}</p>
 												{/if}
-												<div class="flex items-center gap-2 mt-2 flex-wrap">
-													<span class="text-xs text-gray-400">
+												<div class="flex items-center gap-2 mt-1.5 flex-wrap">
+													<span class="text-xs pt-data" style="color: var(--pt-text-muted);">
 														{formatDate(entry.start_date)} → {formatDate(entry.end_date)}
 													</span>
 													{#if entry.tenure_days}
-														<span class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-full px-2 py-0.5">
+														<span class="text-xs px-1.5 py-0.5 pt-data"
+														      style="color: var(--pt-text-secondary); background: var(--pt-bg-2); border-radius: 2px;">
 															{formatDuration(entry.tenure_days)}
 														</span>
 													{/if}
@@ -315,40 +319,35 @@
 						</div>
 
 						<!-- ── Individual Profile ─────────── -->
-						<div class="space-y-4">
-							<h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
-								Individual Profile
-							</h3>
-							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm space-y-3">
+						<div class="space-y-3">
+							<h3 class="pt-label mb-3">Individual Profile</h3>
+							<div class="pt-card space-y-3">
 								{#if employmentSpan().from}
 									<div>
-										<p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Employment span</p>
-										<p class="text-sm text-gray-900 dark:text-gray-100">{employmentSpan().from} — {employmentSpan().to}</p>
+										<p class="pt-label mb-0.5">Employment span</p>
+										<p class="text-sm pt-data" style="color: var(--pt-text-primary);">{employmentSpan().from} — {employmentSpan().to}</p>
 									</div>
 								{/if}
 								<div>
-									<p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Roles shown</p>
-									<p class="text-sm text-gray-900 dark:text-gray-100">
-										{career.length} role{career.length !== 1 ? 's' : ''} across {distinctOrgs.length} organisation{distinctOrgs.length !== 1 ? 's' : ''}
+									<p class="pt-label mb-0.5">Roles shown</p>
+									<p class="text-sm pt-data" style="color: var(--pt-text-primary);">
+										{career.length} role{career.length !== 1 ? 's' : ''} across {distinctOrgs.length} org{distinctOrgs.length !== 1 ? 's' : ''}
 									</p>
 								</div>
 							</div>
-							<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
-								<p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-3">Organisations</p>
-								<ul class="space-y-2">
+							<div class="pt-card">
+								<p class="pt-label mb-2">Organisations</p>
+								<ul class="space-y-1.5">
 									{#each distinctOrgs as org}
 										<li class="flex items-start gap-2">
-											<div class="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0 mt-1.5"></div>
-											<p class="text-sm text-gray-700 dark:text-gray-300 leading-snug">{org}</p>
+											<div class="w-1 h-1 rounded-full shrink-0 mt-1.5" style="background: var(--pt-border);"></div>
+											<p class="text-xs leading-snug" style="color: var(--pt-text-secondary);">{org}</p>
 										</li>
 									{/each}
 								</ul>
 							</div>
 							{#if isDirty}
-								<button onclick={reset}
-									class="w-full py-2 text-sm font-medium text-gray-600 dark:text-gray-400
-									       border border-gray-200 dark:border-gray-700 rounded-xl
-									       hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+								<button onclick={reset} class="pt-button pt-button-outlined w-full">
 									Reset to full timeline
 								</button>
 							{/if}
