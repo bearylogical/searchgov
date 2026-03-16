@@ -555,12 +555,38 @@
 				hoveredNode  = { ...d };
 				hoverClientX = event.clientX;
 				hoverClientY = event.clientY;
+
+				// When hovering a source or target, pulse the path and dim
+				// everything that isn't part of it.
+				if (d.isSource || d.isTarget) {
+					const accent = d.isSource ? '#93c5fd' : '#6ee7b7';
+					link.transition().duration(180)
+						.attr('stroke',       (e: GEdge) => e.inPath ? accent : '#1e293b')
+						.attr('stroke-width', (e: GEdge) => e.inPath ? 4.5 : 1)
+						.attr('opacity',      (e: GEdge) => e.inPath ? 1 : 0.08);
+					edgeLabel.transition().duration(180)
+						.attr('fill', accent);
+					node.transition().duration(180)
+						.attr('opacity', (dn: GNode) => dn.inPath ? 1 : 0.2);
+				}
 			})
 			.on('mousemove', (event) => {
 				hoverClientX = event.clientX;
 				hoverClientY = event.clientY;
 			})
-			.on('mouseout', () => { hoveredNode = null; });
+			.on('mouseout', (_event, d) => {
+				hoveredNode = null;
+				if (d.isSource || d.isTarget) {
+					link.transition().duration(250)
+						.attr('stroke',       (e: GEdge) => e.inPath ? '#818cf8' : '#cbd5e1')
+						.attr('stroke-width', (e: GEdge) => e.inPath ? 2.5 : 1.2)
+						.attr('opacity',      (e: GEdge) => e.inPath ? 1 : 0.45);
+					edgeLabel.transition().duration(250)
+						.attr('fill', '#a5b4fc');
+					node.transition().duration(250)
+						.attr('opacity', 1);
+				}
+			});
 
 		// ── Person circles ─────────────────────────────────
 		const personNodes = node.filter(d => d.type === 'person');
@@ -621,7 +647,8 @@
 		personNodes.append('text')
 			.attr('text-anchor', 'middle')
 			.attr('y', d => nodeRadius(d) + 20)
-			.attr('fill', '#d3dce6').attr('font-size', '17px')
+			.attr('fill', d => d.isSource ? '#93c5fd' : d.isTarget ? '#6ee7b7' : '#d3dce6')
+			.attr('font-size', '17px')
 			.attr('font-weight', d => (d.isSource || d.isTarget) ? '700' : '500')
 			.style('paint-order', 'stroke')
 			.attr('stroke', '#1C2127').attr('stroke-width', 3).attr('stroke-linejoin', 'round')
