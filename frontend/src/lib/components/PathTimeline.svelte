@@ -413,7 +413,7 @@
 	});
 </script>
 
-<div bind:this={containerEl} class="relative w-full h-full"
+<div bind:this={containerEl} class="absolute inset-0"
      style="background: var(--pt-bg-0); overflow-x: hidden; overflow-y: auto;">
 
 	{#if !blocks.length}
