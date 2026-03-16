@@ -34,14 +34,19 @@
 	// Layout constants
 	const LABEL_W    = 172;
 	const GRP_H      = 22;
-	const MIN_LANE_H = 30;
-	const MAX_LANE_H = 80;
+	const MIN_LANE_H = 36;
+	const MAX_LANE_H = 90;
 	const AXIS_H     = 42;
 	const PAD_R      = 16;
 	const BADGE_H    = 13;
 	const CURRENT_YEAR = new Date().getFullYear();
 
-	// Collapsible label state — Set of expanded agencyIds
+	// Match Blueprint palette from app.css
+	const COLOR_SOURCE = '#137CBD'; // var(--pt-blue)
+	const COLOR_TARGET = '#0D8050'; // var(--pt-green)
+	const COLOR_PATH   = '#6366f1'; // indigo for intermediates
+
+	// Collapsible org hierarchy state
 	let expandedOrgs = $state(new Set<string>());
 	function toggleOrg(agencyId: string) {
 		const next = new Set(expandedOrgs);
@@ -70,23 +75,18 @@
 	}
 
 	function blockColor(n: TLNode): string {
-		if (n.isSource) return '#2563eb';
-		if (n.isTarget) return '#059669';
-		return '#6366f1';
+		if (n.isSource) return COLOR_SOURCE;
+		if (n.isTarget) return COLOR_TARGET;
+		return COLOR_PATH;
 	}
 
 	function trunc(s: string, max: number) {
 		return s.length > max ? s.slice(0, max - 1) + '…' : s;
 	}
 
-	/**
-	 * Parse an org agencyName into a hierarchy array.
-	 * "MINISTRY OF COMM : DIVISION A : SUB-UNIT B" →
-	 * if ministry = "MINISTRY OF COMM" → ["DIVISION A", "SUB-UNIT B"]
-	 */
+	/** Strip ministry prefix and split by " : " → hierarchy array */
 	function orgHierarchy(agencyName: string, ministry: string): string[] {
 		let name = agencyName ?? '';
-		// Strip ministry prefix (case-insensitive)
 		const mu = ministry.toUpperCase();
 		const nu = name.toUpperCase();
 		if (nu.startsWith(mu)) {
@@ -150,7 +150,7 @@
 		primaryBlocks.length ? Math.max(...primaryBlocks.map(b => b.yearEnd))   + 1 : CURRENT_YEAR
 	);
 
-	// ── Fallback blocks for source/target without yearLabel ──────────────────────
+	// ── Fallback blocks for source/target whose edge has no yearLabel ────────────
 
 	const blocks = $derived.by((): Block[] => {
 		const nm = new Map(nodes.map(n => [n.id, n]));
@@ -199,19 +199,10 @@
 		return { assignments, numLanes: Math.max(laneEnds.length, 1) };
 	}
 
-	// ── Raw groups (no y positions — needed to compute dynamic LANE_H) ───────────
+	// ── Raw groups ───────────────────────────────────────────────────────────────
 
-	interface RawAgency {
-		agencyId: string;
-		agencyName: string;
-		assignments: Assignment[];
-		numLanes: number;
-	}
-	interface RawGroup {
-		ministry: string;
-		color: string;
-		agencies: RawAgency[];
-	}
+	interface RawAgency { agencyId: string; agencyName: string; assignments: Assignment[]; numLanes: number; }
+	interface RawGroup  { ministry: string; color: string; agencies: RawAgency[]; }
 
 	const rawGroups = $derived.by((): RawGroup[] => {
 		const mm = new Map<string, Map<string, Block[]>>();
@@ -230,33 +221,20 @@
 		}));
 	});
 
-	// Total lane slots across all agencies
 	const totalLanes = $derived(rawGroups.reduce((s, g) => s + g.agencies.reduce((a, ag) => a + ag.numLanes, 0), 0));
 
-	// Dynamic lane height — fills the container
+	// Dynamic lane height: scale up to fill container if possible, else MIN
 	const LANE_H = $derived((() => {
-		if (totalLanes === 0) return 36;
+		if (totalLanes === 0) return MIN_LANE_H;
 		const available = cH - AXIS_H - rawGroups.length * GRP_H;
-		return Math.min(MAX_LANE_H, Math.max(MIN_LANE_H, available / totalLanes));
+		const scaled = available / totalLanes;
+		return Math.min(MAX_LANE_H, Math.max(MIN_LANE_H, scaled));
 	})());
 
 	// ── Groups with y positions ──────────────────────────────────────────────────
 
-	interface AgRow {
-		agencyId: string;
-		agencyName: string;
-		assignments: Assignment[];
-		numLanes: number;
-		y: number;
-		rowH: number; // numLanes * LANE_H
-	}
-	interface MGroup {
-		ministry: string;
-		color: string;
-		rows: AgRow[];
-		y: number;
-		h: number;
-	}
+	interface AgRow { agencyId: string; agencyName: string; assignments: Assignment[]; numLanes: number; y: number; rowH: number; }
+	interface MGroup { ministry: string; color: string; rows: AgRow[]; y: number; h: number; }
 
 	const groups = $derived.by((): MGroup[] => {
 		let y = AXIS_H;
@@ -273,7 +251,9 @@
 		});
 	});
 
-	const svgH = $derived(Math.max(cH, groups.reduce((s, g) => s + g.h, AXIS_H) + 8));
+	// Natural content height; SVG is sized to this (container scrolls if it overflows)
+	const naturalH = $derived(groups.reduce((s, g) => s + g.h, AXIS_H) + 8);
+	const svgH     = $derived(Math.max(naturalH, cH));
 
 	// ── Scales ───────────────────────────────────────────────────────────────────
 
@@ -281,6 +261,133 @@
 		d3.scaleLinear<number>().domain([yr0, yr1]).range([LABEL_W, W - PAD_R])
 	);
 	const ticks = $derived(d3.range(yr0, yr1 + 1) as number[]);
+
+	// ── Rendered block positions (for connectors) ────────────────────────────────
+
+	interface RenderedBlock {
+		block: Block;
+		agencyId: string;
+		lane: number;
+		bx: number; bw: number; by: number; bh: number;
+		cx: number; cy: number; // center
+		rx: number; // right edge x
+	}
+
+	const renderedBlocks = $derived.by((): RenderedBlock[] => {
+		const out: RenderedBlock[] = [];
+		for (const g of groups) {
+			for (const row of g.rows) {
+				for (const { block, lane } of row.assignments) {
+					const laneY  = row.y + lane * LANE_H;
+					const hasLbl = block.isSource || block.isTarget;
+					const bPad   = 4;
+					const bh     = LANE_H - bPad * 2 - (hasLbl ? BADGE_H : 0);
+					const by_    = laneY + bPad;
+					const bx     = xScale(block.yearStart);
+					const bw     = Math.max(xScale(block.yearEnd) - bx, 16);
+					out.push({
+						block, agencyId: row.agencyId, lane,
+						bx, bw, by: by_, bh,
+						cx: bx + bw / 2, cy: by_ + bh / 2,
+						rx: bx + bw,
+					});
+				}
+			}
+		}
+		return out;
+	});
+
+	// ── Path person sequence ─────────────────────────────────────────────────────
+
+	const pathPersonOrder = $derived.by((): string[] => {
+		const nm = new Map(nodes.map(n => [n.id, n]));
+		const adj = new Map<string, string[]>();
+		for (const e of edges) {
+			if (!e.inPath) continue;
+			const sid = eid(e.source), tid = eid(e.target);
+			if (!adj.has(sid)) adj.set(sid, []);
+			if (!adj.has(tid)) adj.set(tid, []);
+			adj.get(sid)!.push(tid);
+			adj.get(tid)!.push(sid);
+		}
+		const source = nodes.find(n => n.isSource && n.inPath);
+		if (!source) return [];
+		const result: string[] = [];
+		const visited = new Set<string>();
+		let curr = source.id;
+		while (curr) {
+			visited.add(curr);
+			const n = nm.get(curr);
+			if (n?.type === 'person') result.push(curr);
+			curr = (adj.get(curr) ?? []).find(id => !visited.has(id)) ?? '';
+		}
+		return result;
+	});
+
+	// ── Continuity lines: same person across multiple agency rows ────────────────
+
+	interface ConnLine { x1: number; y1: number; x2: number; y2: number; color: string; }
+
+	const continuityLines = $derived.by((): ConnLine[] => {
+		const byPerson = new Map<string, RenderedBlock[]>();
+		for (const rb of renderedBlocks) {
+			if (!byPerson.has(rb.block.personId)) byPerson.set(rb.block.personId, []);
+			byPerson.get(rb.block.personId)!.push(rb);
+		}
+		const lines: ConnLine[] = [];
+		for (const [, rbs] of byPerson) {
+			if (rbs.length < 2) continue;
+			// Only draw between blocks in DIFFERENT agency rows
+			const sorted = [...rbs].sort((a, b) => a.block.yearStart - b.block.yearStart);
+			for (let i = 0; i < sorted.length - 1; i++) {
+				const from = sorted[i], to = sorted[i + 1];
+				if (from.agencyId === to.agencyId) continue; // same row — no line needed
+				lines.push({ x1: from.rx, y1: from.cy, x2: to.bx, y2: to.cy, color: from.block.color });
+			}
+		}
+		return lines;
+	});
+
+	// ── Path arrows: connection between consecutive path persons ─────────────────
+
+	interface Arrow { x1: number; y1: number; x2: number; y2: number; sameRow: boolean; overlapX: number; }
+
+	const pathArrows = $derived.by((): Arrow[] => {
+		const rbByPerson = new Map<string, RenderedBlock[]>();
+		for (const rb of renderedBlocks) {
+			if (!rbByPerson.has(rb.block.personId)) rbByPerson.set(rb.block.personId, []);
+			rbByPerson.get(rb.block.personId)!.push(rb);
+		}
+		const arrows: Arrow[] = [];
+		for (let i = 0; i < pathPersonOrder.length - 1; i++) {
+			const rbs1 = rbByPerson.get(pathPersonOrder[i]) ?? [];
+			const rbs2 = rbByPerson.get(pathPersonOrder[i + 1]) ?? [];
+			if (!rbs1.length || !rbs2.length) continue;
+
+			// Prefer pair sharing the same agencyId
+			let r1: RenderedBlock | undefined, r2: RenderedBlock | undefined;
+			outer: for (const a of rbs1) {
+				for (const b of rbs2) {
+					if (a.agencyId === b.agencyId) { r1 = a; r2 = b; break outer; }
+				}
+			}
+			if (!r1) r1 = rbs1[rbs1.length - 1];
+			if (!r2) r2 = rbs2[0];
+
+			const sameRow = r1.agencyId === r2.agencyId;
+			// Overlap midpoint x
+			const overlapStart = Math.max(r1.block.yearStart, r2.block.yearStart);
+			const overlapEnd   = Math.min(r1.block.yearEnd,   r2.block.yearEnd);
+			const overlapX     = xScale(overlapStart < overlapEnd ? (overlapStart + overlapEnd) / 2 : (r1.block.yearEnd + r2.block.yearStart) / 2);
+
+			arrows.push({
+				x1: r1.cx, y1: sameRow ? r1.by + r1.bh : r1.cy,
+				x2: r2.cx, y2: sameRow ? r2.by          : r2.cy,
+				sameRow, overlapX,
+			});
+		}
+		return arrows;
+	});
 
 	// ── Tooltip ──────────────────────────────────────────────────────────────────
 	let hov  = $state<Block | null>(null);
@@ -303,7 +410,7 @@
 </script>
 
 <div bind:this={containerEl} class="relative w-full h-full"
-     style="background: var(--pt-bg-0); overflow: hidden;">
+     style="background: var(--pt-bg-0); overflow-x: hidden; overflow-y: auto;">
 
 	{#if !blocks.length}
 		<div class="absolute inset-0 flex items-center justify-center">
@@ -321,14 +428,30 @@
 		<svg width={W} height={svgH}
 		     style="display: block; font-family: inherit; overflow: visible;">
 
+			<defs>
+				<!-- Arrowhead for path connection arrows -->
+				<marker id="arr-fwd" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+					<path d="M0,0.5 L5,3 L0,5.5 Z" fill="rgba(255,255,255,0.55)" />
+				</marker>
+				<!-- Arrowhead for continuity line (path-colored) -->
+				<marker id="arr-cont-blue"  markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+					<path d="M0,0.5 L5,3 L0,5.5 Z" fill="{COLOR_SOURCE}99" />
+				</marker>
+				<marker id="arr-cont-green" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+					<path d="M0,0.5 L5,3 L0,5.5 Z" fill="{COLOR_TARGET}99" />
+				</marker>
+				<marker id="arr-cont-indigo" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+					<path d="M0,0.5 L5,3 L0,5.5 Z" fill="{COLOR_PATH}99" />
+				</marker>
+			</defs>
+
 			<!-- ── Year axis ──────────────────────────────────────── -->
 			<line x1={LABEL_W} y1={AXIS_H - 4} x2={W - PAD_R} y2={AXIS_H - 4}
 			      stroke="var(--pt-border)" stroke-width="1" />
-
 			{#each ticks as yr}
 				{@const x = xScale(yr)}
 				<line x1={x} y1={AXIS_H - 4} x2={x} y2={svgH}
-				      stroke="var(--pt-border-muted)" stroke-width="0.75" opacity="0.4" />
+				      stroke="var(--pt-border-muted)" stroke-width="0.75" opacity="0.35" />
 				<text x={x} y={AXIS_H - 12} text-anchor="middle"
 				      fill="var(--pt-text-muted)" font-size="11"
 				      font-family="'Fira Mono','JetBrains Mono','Consolas',monospace">{yr}</text>
@@ -342,11 +465,9 @@
 
 			<!-- ── Ministry groups ────────────────────────────────── -->
 			{#each groups as g}
-				<!-- Group background tint + left accent -->
 				<rect x={0} y={g.y} width={W} height={g.h} fill="{g.color}10" />
 				<rect x={0} y={g.y} width={3} height={g.h} fill={g.color} />
 				<line x1={0} y1={g.y} x2={W} y2={g.y} stroke="{g.color}55" stroke-width="1" />
-				<!-- Ministry label (all-caps, colored) -->
 				<text x={8} y={g.y + GRP_H / 2 + 4} fill={g.color}
 				      font-size="9.5" font-weight="700" letter-spacing="0.06em">
 					{trunc(g.ministry, 26)}
@@ -360,97 +481,103 @@
 
 					<!-- Row bottom border -->
 					<line x1={0} y1={row.y + row.rowH} x2={W} y2={row.y + row.rowH}
-					      stroke="var(--pt-border-muted)" stroke-width="0.5" opacity="0.4" />
+					      stroke="var(--pt-border-muted)" stroke-width="0.5" opacity="0.45" />
 
-					<!-- Label area: hierarchy label, clickable to expand -->
+					<!-- Lane separators within multi-lane rows -->
+					{#if row.numLanes > 1}
+						{#each Array(row.numLanes - 1) as _, li}
+							<line x1={LABEL_W} y1={row.y + (li + 1) * LANE_H}
+							      x2={W - PAD_R} y2={row.y + (li + 1) * LANE_H}
+							      stroke="var(--pt-border-muted)" stroke-width="0.4" opacity="0.3"
+							      stroke-dasharray="3,4" />
+						{/each}
+					{/if}
+
+					<!-- Label area — clickable to expand hierarchy -->
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<g onclick={() => subs.length > 0 && toggleOrg(row.agencyId)}
 					   style={subs.length > 0 ? 'cursor: pointer;' : ''}>
-						<!-- Hover hit-area for label region -->
 						<rect x={0} y={row.y} width={LABEL_W - 1} height={row.rowH} fill="transparent" />
 
-						<!-- Direct agency (line 1) -->
+						<!-- Direct agency name (line 1 — prominently styled) -->
 						<text
 							x={8}
-							y={row.y + (isExp && subs.length > 0 ? 14 : row.rowH / 2 + 4)}
-							fill="var(--pt-text-secondary)"
-							font-size="9.5"
-							dominant-baseline={isExp && subs.length > 0 ? 'auto' : 'middle'}
+							y={row.y + (isExp && subs.length > 0 ? 15 : row.rowH / 2 + (subs.length > 0 ? -5 : 4))}
+							fill="var(--pt-text-primary)"
+							font-size="10"
+							font-weight="600"
 						>
 							{#if subs.length > 0}
-								<!-- Toggle arrow + direct label -->
-								<tspan fill={g.color} font-size="8">{isExp ? '▼ ' : '▶ '}</tspan>
-								<tspan font-weight="600">{trunc(direct, 19)}</tspan>
-							{:else}
-								{trunc(direct, 21)}
-							{/if}
+								<tspan fill={g.color} font-size="8.5">{isExp ? '▼' : '▶'} </tspan>
+							{/if}{trunc(direct, 20)}
 						</text>
 
-						<!-- Sub-unit lines (visible when expanded) -->
-						{#if isExp}
-							{#each subs as sub, si}
-								<text
-									x={12}
-									y={row.y + 26 + si * 13}
-									fill="var(--pt-text-muted)"
-									font-size="8.5"
-								>↳ {trunc(sub, 22)}</text>
-							{/each}
-						{:else if subs.length > 0}
-							<!-- Collapsed hint: show first sub with ellipsis -->
-							<text x={12} y={row.y + row.rowH / 2 + 14}
-							      fill="var(--pt-text-muted)" font-size="8" opacity="0.7">
-								↳ {trunc(subs[0], 22)}{subs.length > 1 ? ` +${subs.length - 1}` : ''}
-							</text>
+						<!-- Sub-unit hint / expanded sub-levels -->
+						{#if subs.length > 0}
+							{#if isExp}
+								{#each subs as sub, si}
+									<text x={13} y={row.y + 27 + si * 13}
+									      fill="var(--pt-text-muted)" font-size="8.5">
+										↳ {trunc(sub, 21)}
+									</text>
+								{/each}
+							{:else}
+								<!-- Collapsed hint -->
+								<text x={12} y={row.y + row.rowH / 2 + 9}
+								      fill="var(--pt-text-muted)" font-size="8.5" opacity="0.8">
+									↳ {trunc(subs[0], 21)}{subs.length > 1 ? ` +${subs.length - 1}` : ''}
+								</text>
+							{/if}
 						{/if}
 					</g>
 
 					<!-- ── Timeline blocks per lane ────────────────── -->
 					{#each row.assignments as { block: b, lane }}
-						{@const bx  = xScale(b.yearStart)}
-						{@const bx2 = xScale(b.yearEnd)}
-						{@const bw  = Math.max(bx2 - bx, 16)}
 						{@const laneY  = row.y + lane * LANE_H}
-						{@const hasLabel = b.isSource || b.isTarget}
-						{@const bPad = 4}
-						{@const bh  = LANE_H - bPad * 2 - (hasLabel ? BADGE_H : 0)}
-						{@const by  = laneY + bPad}
+						{@const hasLbl = b.isSource || b.isTarget}
+						{@const bPad   = 4}
+						{@const bh     = LANE_H - bPad * 2 - (hasLbl ? BADGE_H : 0)}
+						{@const by_    = laneY + bPad}
+						{@const bx     = xScale(b.yearStart)}
+						{@const bw     = Math.max(xScale(b.yearEnd) - bx, 16)}
 
 						{#if b.isFallback}
-							<!-- Dashed outline block (no precise date) -->
-							<rect x={bx} y={by} width={bw} height={bh}
-							      fill={b.color} rx="2" opacity="0.2" />
-							<rect x={bx} y={by} width={bw} height={bh}
+							<rect x={bx} y={by_} width={bw} height={bh} fill={b.color} rx="2" opacity="0.2" />
+							<rect x={bx} y={by_} width={bw} height={bh}
 							      fill="none" stroke={b.color} stroke-width="1.5"
 							      stroke-dasharray="4,3" rx="2" opacity="0.65" />
 							{#if bw > 18}
-								<text x={bx + bw / 2} y={by + bh / 2 + 4}
+								<text x={bx + bw / 2} y={by_ + bh / 2 + 4}
 								      text-anchor="middle" fill={b.color}
-								      font-size={Math.min(10, LANE_H * 0.28)}
+								      font-size={Math.min(10, LANE_H * 0.25)}
 								      font-weight="700" pointer-events="none"
 								      font-family="'Fira Mono','JetBrains Mono','Consolas',monospace"
 								>{b.initials}</text>
 							{/if}
 						{:else}
-							<!-- Solid block with drop shadow -->
-							<rect x={bx + 1} y={by + 1} width={bw} height={bh}
-							      fill="rgba(0,0,0,0.2)" rx="2" />
-							<rect x={bx} y={by} width={bw} height={bh}
+							<!-- Drop shadow -->
+							<rect x={bx + 1} y={by_ + 1} width={bw} height={bh} fill="rgba(0,0,0,0.2)" rx="2" />
+							<!-- Main block -->
+							<rect x={bx} y={by_} width={bw} height={bh}
 							      fill={b.color} rx="2" opacity="0.9"
 							      style="cursor: pointer;"
 							      onmouseenter={(e) => { hov = b; hx = e.clientX; hy = e.clientY; }}
 							      onmouseleave={() => { hov = null; }} />
-							<!-- Year span label inside block (if wide enough) -->
-							{#if bw > 60}
-								<text x={bx + bw / 2} y={by + bh / 2 + 4}
+							<!-- Top highlight stripe for source/target -->
+							{#if hasLbl}
+								<rect x={bx} y={by_} width={bw} height={3} fill="white" rx="2" opacity="0.25" pointer-events="none" />
+							{/if}
+							<!-- Label inside block -->
+							{#if bw > 70}
+								<text x={bx + bw / 2} y={by_ + bh / 2 + 4}
 								      text-anchor="middle" fill="white"
-								      font-size={Math.min(10, LANE_H * 0.26)}
+								      font-size={Math.min(10, LANE_H * 0.24)}
 								      font-weight="600" pointer-events="none"
 								      font-family="'Fira Mono','JetBrains Mono','Consolas',monospace"
 								>{b.initials}  {b.yearStart}–{b.yearEnd}</text>
 							{:else if bw > 24}
-								<text x={bx + bw / 2} y={by + bh / 2 + 4}
+								<text x={bx + bw / 2} y={by_ + bh / 2 + 4}
 								      text-anchor="middle" fill="white"
 								      font-size={Math.min(10, LANE_H * 0.28)}
 								      font-weight="700" pointer-events="none"
@@ -459,10 +586,9 @@
 							{/if}
 						{/if}
 
-						<!-- SOURCE / TARGET badge below block -->
-						{#if hasLabel}
-							<text x={bx + bw / 2}
-							      y={by + bh + BADGE_H - 1}
+						<!-- SOURCE / TARGET badge -->
+						{#if hasLbl}
+							<text x={bx + bw / 2} y={by_ + bh + BADGE_H - 1}
 							      text-anchor="middle"
 							      fill={b.isSource ? '#68b9e5' : '#3dcc91'}
 							      font-size="7.5" font-weight="700" letter-spacing="0.07em"
@@ -470,6 +596,37 @@
 						{/if}
 					{/each}
 				{/each}
+			{/each}
+
+			<!-- ── Continuity lines: same person across different agency rows ── -->
+			{#each continuityLines as cl}
+				{@const dx = cl.x2 - cl.x1}
+				{@const mid = cl.x1 + dx * 0.5}
+				<!-- Bezier: exit right side of block, arc over to left side of next block -->
+				<path d="M {cl.x1} {cl.y1} C {cl.x1 + Math.max(30, dx * 0.35)} {cl.y1} {cl.x2 - Math.max(30, dx * 0.35)} {cl.y2} {cl.x2} {cl.y2}"
+				      fill="none" stroke={cl.color} stroke-width="1.5"
+				      stroke-dasharray="5,3" opacity="0.5"
+				      marker-end={cl.color === COLOR_SOURCE ? 'url(#arr-cont-blue)' : cl.color === COLOR_TARGET ? 'url(#arr-cont-green)' : 'url(#arr-cont-indigo)'} />
+			{/each}
+
+			<!-- ── Path arrows: linkage between consecutive path persons ── -->
+			{#each pathArrows as pa}
+				{#if pa.sameRow}
+					<!-- Same agency row: vertical connecting bracket at overlap midpoint -->
+					<line x1={pa.overlapX} y1={pa.y1} x2={pa.overlapX} y2={pa.y2}
+					      stroke="rgba(255,255,255,0.45)" stroke-width="1.5"
+					      marker-end="url(#arr-fwd)" />
+					<!-- Small horizontal ticks at each end -->
+					<line x1={pa.overlapX - 6} y1={pa.y1} x2={pa.overlapX + 6} y2={pa.y1}
+					      stroke="rgba(255,255,255,0.35)" stroke-width="1" />
+					<line x1={pa.overlapX - 6} y1={pa.y2} x2={pa.overlapX + 6} y2={pa.y2}
+					      stroke="rgba(255,255,255,0.35)" stroke-width="1" />
+				{:else}
+					<!-- Different rows: curved arrow -->
+					<path d="M {pa.x1} {pa.y1} C {pa.x1} {(pa.y1 + pa.y2) / 2} {pa.x2} {(pa.y1 + pa.y2) / 2} {pa.x2} {pa.y2}"
+					      fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"
+					      marker-end="url(#arr-fwd)" />
+				{/if}
 			{/each}
 
 		</svg>
