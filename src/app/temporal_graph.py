@@ -288,17 +288,15 @@ class TemporalGraph:
         else:
             person2 = int(person2)
         if is_temporal:
-            # If temporal, we need to ensure the path is valid in the temporal context
             res = await self.graph_service.find_shortest_temporal_path(
-                person1, person2, include_metadata
+                person1, person2, ids_only=True
             )
         else:
-            res = await self.graph_service.find_shortest_path(
-                person1, person2, people_only=False, ids_only=True
+            res = await self.graph_service.find_shortest_nontemporal_path(
+                person1, person2, ids_only=True
             )
         if res and include_metadata:
             res_metadata = []
-            # Include metadata for each person in the path
             for item in res:
                 record = {}
                 try:
@@ -306,11 +304,14 @@ class TemporalGraph:
                         record["node_id"] = item
                         record["node_type"] = "person"
                         record["person_id"] = int(item.split("_")[1])
+                        person_row = await self.people_repo.find_by_person_id(
+                            record["person_id"]
+                        )
+                        # Prefer clean_name (properly capitalised) over raw name
                         record["name"] = (
-                            await self.people_repo.find_by_person_id(
-                                record["person_id"]
-                            )
-                        )["name"]
+                            person_row.get("clean_name")
+                            or person_row.get("name", "")
+                        )
                         record[
                             "employment_profile"
                         ] = await self.find_employment_profile_by_person_id(
