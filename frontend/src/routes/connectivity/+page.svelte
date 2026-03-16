@@ -893,6 +893,20 @@
 			</div>
 		{:else}
 			<!-- ── Expanded grid ─────────────────────────────── -->
+
+			<!-- Collapse affordance — only when visualization is already loaded -->
+			{#if pathResult && pathResult.nodes.length > 0}
+				<div class="flex items-center justify-end px-4 py-1.5"
+				     style="border-bottom: 1px solid var(--pt-border-muted);">
+					<button
+						onclick={() => { panelCollapsed = true; }}
+						class="pt-button pt-button-outlined text-xs shrink-0"
+						style="padding: 0.2rem 0.6rem;">
+						Collapse ▴
+					</button>
+				</div>
+			{/if}
+
 			<div class="grid grid-cols-1 md:grid-cols-2" style="divide-color: var(--pt-border);">
 
 				<!-- Source slot -->
