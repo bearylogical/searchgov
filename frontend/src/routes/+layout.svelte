@@ -88,7 +88,7 @@
 						<a
 							href={link.href}
 							onclick={closeMobileNav}
-							class="flex items-center px-4 py-3 text-xs font-semibold tracking-wider uppercase transition-colors"
+							class="flex items-center px-4 py-3 text-sm font-semibold tracking-wider uppercase transition-colors"
 							style={page.url.pathname === link.href
 								? 'color: #68b9e5; background: var(--pt-blue-tint); border-left: 2px solid var(--pt-blue);'
 								: 'color: var(--pt-text-secondary);'}
@@ -102,10 +102,10 @@
 			<!-- User info at bottom -->
 			{#if $isAuthenticated}
 				<div class="p-4" style="border-top: 1px solid var(--pt-border);">
-					<p class="text-xs truncate mb-3" style="color: var(--pt-text-muted);">{$user?.email}</p>
+					<p class="text-sm truncate mb-3" style="color: var(--pt-text-muted);">{$user?.email}</p>
 					<button
 						onclick={() => { handleSignOut(); closeMobileNav(); }}
-						class="w-full pt-button pt-button-outlined text-xs"
+						class="w-full pt-button pt-button-outlined text-sm"
 					>
 						Sign out
 					</button>
@@ -136,7 +136,7 @@
 				<!-- Logo -->
 				<a href="/" class="flex items-center gap-2 shrink-0 mr-2">
 					<img src="/lion_search.png" alt="SGDI Analytics" class="w-8 h-8 object-contain" />
-					<span class="font-semibold text-xs tracking-widest uppercase hidden sm:block"
+					<span class="font-semibold text-sm tracking-widest uppercase hidden sm:block"
 					      style="color: var(--pt-text-primary); letter-spacing: 0.1em;">
 						SGDI Analytics
 					</span>
@@ -148,7 +148,7 @@
 						{#each navLinks as link}
 							<a
 								href={link.href}
-								class="px-3 py-1.5 text-xs font-semibold tracking-wider uppercase transition-colors"
+								class="px-3 py-1.5 text-sm font-semibold tracking-wider uppercase transition-colors"
 								style={page.url.pathname === link.href
 									? 'color: #68b9e5; background: var(--pt-blue-tint); border-radius: 2px;'
 									: 'color: var(--pt-text-muted);'}
@@ -198,16 +198,16 @@
 				</button>
 
 				{#if $isAuthenticated}
-					<span class="hidden lg:block text-xs max-w-[180px] truncate" style="color: var(--pt-text-muted);">
+					<span class="hidden lg:block text-sm max-w-[180px] truncate" style="color: var(--pt-text-muted);">
 						{$user?.email}
 					</span>
-					<div class="w-7 h-7 flex items-center justify-center text-white text-xs font-bold shrink-0"
+					<div class="w-7 h-7 flex items-center justify-center text-white text-sm font-bold shrink-0"
 					     style="background: var(--pt-blue); border-radius: 2px; font-family: var(--font-mono);">
 						{initials}
 					</div>
 					<button
 						onclick={handleSignOut}
-						class="hidden sm:block text-xs font-medium px-2.5 py-1.5 rounded transition-colors"
+						class="hidden sm:block text-sm font-medium px-2.5 py-1.5 rounded transition-colors"
 						style="color: var(--pt-text-muted); border: 1px solid var(--pt-border); border-radius: 2px;"
 						onmouseover={(e) => {
 							(e.currentTarget as HTMLElement).style.color = 'var(--pt-text-primary)';
@@ -223,7 +223,7 @@
 				{:else}
 					<a
 						href="/login"
-						class="pt-button pt-button-primary text-xs"
+						class="pt-button pt-button-primary text-sm"
 					>
 						Sign in
 					</a>
