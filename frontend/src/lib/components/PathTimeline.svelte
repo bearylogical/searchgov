@@ -306,7 +306,7 @@
      style="background: var(--pt-bg-0); overflow: hidden;">
 
 	{#if !blocks.length}
-		<div class="flex items-center justify-center h-full">
+		<div class="absolute inset-0 flex items-center justify-center">
 			<div class="text-center space-y-2">
 				<svg class="w-10 h-10 mx-auto" style="color: var(--pt-border);" fill="none"
 				     stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
