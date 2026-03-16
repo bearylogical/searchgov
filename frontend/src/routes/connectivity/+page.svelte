@@ -365,15 +365,26 @@
 
 	onMount(() => {
 		document.body.style.overflow = 'hidden';
+		// Seed dimensions immediately so first renderD3() uses real canvas size
+		if (svgEl) {
+			const r = svgEl.getBoundingClientRect();
+			if (r.width > 0)  svgWidth  = r.width;
+			if (r.height > 0) svgHeight = r.height;
+		}
 		const ro = new ResizeObserver(entries => {
-			for (const e of entries) { svgWidth = e.contentRect.width; svgHeight = e.contentRect.height; }
+			for (const e of entries) {
+				if (e.contentRect.width  > 0) svgWidth  = e.contentRect.width;
+				if (e.contentRect.height > 0) svgHeight = e.contentRect.height;
+			}
 		});
-		if (svgEl?.parentElement) ro.observe(svgEl.parentElement);
+		if (svgEl) ro.observe(svgEl);
 		return () => { document.body.style.overflow = ''; ro.disconnect(); };
 	});
 
 	$effect(() => {
 		if (!svgEl || graphNodes.length === 0) return;
+		// Access dimensions to re-render when canvas resizes
+		void svgWidth; void svgHeight;
 		renderD3();
 	});
 
@@ -398,6 +409,11 @@
 
 	function renderD3() {
 		if (!svgEl) return;
+		// Always use actual rendered dimensions for accurate centering
+		const rect = svgEl.getBoundingClientRect();
+		if (rect.width  > 0) svgWidth  = rect.width;
+		if (rect.height > 0) svgHeight = rect.height;
+
 		const svg = d3.select(svgEl);
 		svg.selectAll('*').remove();
 
@@ -477,7 +493,7 @@
 			.data(simEdges.filter(e => e.yearLabel))
 			.join('text')
 			.attr('text-anchor', 'middle')
-			.attr('font-size', '12px')
+			.attr('font-size', '16px')
 			.attr('font-weight', '600')
 			.attr('fill', '#a5b4fc')
 			// Dark halo for readability over the dark background
@@ -534,7 +550,7 @@
 
 		personNodes.append('text')
 			.attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
-			.attr('fill', 'white').attr('font-size', '15px').attr('font-weight', '700')
+			.attr('fill', 'white').attr('font-size', '17px').attr('font-weight', '700')
 			.attr('letter-spacing', '0.5px').attr('pointer-events', 'none')
 			.text(d => d.name.slice(0, 2).toUpperCase());
 
@@ -562,7 +578,7 @@
 		// ── Label inside org shape — short identifier ─────────
 		orgNodes.append('text')
 			.attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
-			.attr('fill', 'white').attr('font-size', '11px').attr('font-weight', '600')
+			.attr('fill', 'white').attr('font-size', '10px').attr('font-weight', '600')
 			.attr('pointer-events', 'none')
 			.text(d => truncate(d.agencyName ?? d.ministry ?? d.name, 13));
 
@@ -571,7 +587,7 @@
 		personNodes.append('text')
 			.attr('text-anchor', 'middle')
 			.attr('y', d => nodeRadius(d) + 20)
-			.attr('fill', '#d3dce6').attr('font-size', '13px')
+			.attr('fill', '#d3dce6').attr('font-size', '17px')
 			.attr('font-weight', d => (d.isSource || d.isTarget) ? '700' : '500')
 			.style('paint-order', 'stroke')
 			.attr('stroke', '#1C2127').attr('stroke-width', 3).attr('stroke-linejoin', 'round')
@@ -588,13 +604,13 @@
 				.attr('stroke', '#1C2127').attr('stroke-width', 3).attr('stroke-linejoin', 'round');
 			text.append('tspan')
 				.attr('x', 0).attr('y', yBase)
-				.attr('fill', '#d3dce6').attr('font-size', '12px').attr('font-weight', '500')
+				.attr('fill', '#d3dce6').attr('font-size', '16px').attr('font-weight', '500')
 				.text(truncate(d.agencyName ?? d.name, 22));
 			if (d.agencyName && d.ministry) {
 				text.append('tspan')
 					.attr('x', 0).attr('dy', '1.3em')
 					.attr('fill', getMinistryColor(d.ministry))
-					.attr('font-size', '11px').attr('font-weight', '600')
+					.attr('font-size', '13px').attr('font-weight', '600')
 					.text(truncate(d.ministry, 22));
 			}
 		});
@@ -605,7 +621,7 @@
 			.attr('text-anchor', 'middle')
 			.attr('y', d => nodeRadius(d) + 38)
 			.attr('fill', d => d.isSource ? '#68b9e5' : '#3dcc91')
-			.attr('font-size', '12px').attr('font-weight', '700').attr('letter-spacing', '0.5px')
+			.attr('font-size', '16px').attr('font-weight', '700').attr('letter-spacing', '0.5px')
 			.attr('pointer-events', 'none')
 			.text(d => d.isSource ? '▲ SOURCE' : '▼ TARGET');
 
@@ -736,7 +752,7 @@
 	<div class="flex-none px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap"
 	     style="background: var(--pt-bg-1); border-bottom: 1px solid var(--pt-border);">
 		<div class="flex items-center gap-2 min-w-0">
-			<h1 class="text-xs font-semibold tracking-widest uppercase" style="color: var(--pt-text-primary);">Connectivity Explorer</h1>
+			<h1 class="text-sm font-semibold tracking-widest uppercase" style="color: var(--pt-text-primary);">Connectivity Explorer</h1>
 			<InfoTip tip="Find the shortest connection path between two people through shared organisations. Click any person node to view their network stats." />
 		</div>
 		<div class="flex items-center gap-3 flex-wrap">
@@ -829,17 +845,17 @@
 		{#if pathResult || pathLoading || pathError}
 			<div class="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 w-full max-w-xl px-3">
 				{#if pathLoading}
-					<div class="px-4 py-1.5 text-xs animate-pulse"
+					<div class="px-4 py-1.5 text-sm animate-pulse"
 					     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; color: var(--pt-text-muted);">
 						Searching for connection…
 					</div>
 				{:else if pathError}
-					<div class="px-4 py-1.5 text-xs"
+					<div class="px-4 py-1.5 text-sm"
 					     style="background: var(--pt-red-tint); border: 1px solid var(--pt-red); border-radius: 2px; color: #ff7373;">
 						{pathError}
 					</div>
 				{:else if pathResult && pathResult.length === 0}
-					<div class="px-4 py-1.5 text-xs"
+					<div class="px-4 py-1.5 text-sm"
 					     style="background: var(--pt-orange-tint); border: 1px solid var(--pt-orange); border-radius: 2px; color: #ffb366;">
 						No connection found — try disabling Temporal mode
 					</div>
@@ -918,7 +934,7 @@
 					{#each ministryLegend as item}
 						<li class="flex items-center gap-1.5">
 							<span class="w-2.5 h-2.5 shrink-0" style="background: {item.color}; border-radius: 1px;"></span>
-							<span class="text-xs truncate" style="color: var(--pt-text-secondary);">{item.ministry}</span>
+							<span class="text-sm truncate" style="color: var(--pt-text-secondary);">{item.ministry}</span>
 						</li>
 					{/each}
 				</ul>
@@ -926,7 +942,7 @@
 		{/if}
 
 		{#if graphNodes.length > 0}
-			<div class="absolute bottom-3 right-3 text-xs px-2.5 py-1.5 hidden sm:block"
+			<div class="absolute bottom-3 right-3 text-sm px-2.5 py-1.5 hidden sm:block"
 			     style="color: var(--pt-text-muted); background: var(--pt-bg-1); border: 1px solid var(--pt-border); border-radius: 2px;">
 				Click person · Scroll to zoom · Drag to pan
 			</div>
@@ -950,7 +966,7 @@
 		       background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px;
 		       box-shadow: 0 4px 12px rgba(0,0,0,0.5);"
 	>
-		<p class="text-xs font-semibold leading-snug" style="color: var(--pt-text-primary);">{hoveredNode.name}</p>
+		<p class="text-sm font-semibold leading-snug" style="color: var(--pt-text-primary);">{hoveredNode.name}</p>
 
 		{#if hoveredNode.type === 'org'}
 			{#if hoveredNode.agencyName && hoveredNode.ministry}
@@ -959,7 +975,7 @@
 						<span class="w-2 h-2 shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}; border-radius: 1px;"></span>
 						<p class="text-xs" style="color: var(--pt-text-secondary);">{hoveredNode.ministry}</p>
 					</div>
-					<p class="text-xs pl-3.5" style="color: var(--pt-text-muted);">↳ {hoveredNode.agencyName}</p>
+					<p class="text-sm pl-3.5" style="color: var(--pt-text-muted);">↳ {hoveredNode.agencyName}</p>
 				</div>
 				<p class="pt-label">Agency</p>
 			{:else if hoveredNode.ministry}
@@ -984,7 +1000,7 @@
 					<p class="pt-label mb-1">Connected through</p>
 					<ul class="space-y-0.5">
 						{#each adjOrgs as org}
-							<li class="flex items-center gap-1.5 text-xs" style="color: var(--pt-text-muted);">
+							<li class="flex items-center gap-1.5 text-sm" style="color: var(--pt-text-muted);">
 								<span class="w-1.5 h-1.5 shrink-0" style="background: {org.ministry ? getMinistryColor(org.ministry) : '#5C7080'}; border-radius: 1px;"></span>
 								<span class="truncate">{org.agencyName ?? org.ministry ?? org.name}</span>
 							</li>
@@ -1015,14 +1031,14 @@
 
 		<div class="flex items-start justify-between gap-3">
 			<div class="flex items-center gap-3">
-				<div class="w-10 h-10 flex items-center justify-center text-white text-xs font-bold shrink-0"
+				<div class="w-10 h-10 flex items-center justify-center text-white text-sm font-bold shrink-0"
 				     style="background: {personFill(modalNode)}; border-radius: 2px; font-family: var(--font-mono);">
 					{modalNode.name.slice(0, 2).toUpperCase()}
 				</div>
 				<div>
 					<h2 class="text-sm font-semibold" style="color: var(--pt-text-primary);">{modalNode.name}</h2>
 					{#if modalNode.role}
-						<p class="text-xs mt-0.5" style="color: var(--pt-text-muted);">{modalNode.role}</p>
+						<p class="text-sm mt-0.5" style="color: var(--pt-text-muted);">{modalNode.role}</p>
 					{/if}
 					{#if modalNode.ministry}
 						<div class="flex items-center gap-1.5 mt-0.5">
@@ -1053,13 +1069,13 @@
 					<p class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">
 						{modalNetwork.summary.total_colleagues}
 					</p>
-					<p class="text-xs mt-0.5" style="color: var(--pt-text-muted);">Direct connections</p>
+					<p class="text-sm mt-0.5" style="color: var(--pt-text-muted);">Direct connections</p>
 				</div>
 				<div class="p-3 text-center" style="background: var(--pt-bg-2); border-radius: 2px;">
 					<p class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">
 						{ministryCounts.length}
 					</p>
-					<p class="text-xs mt-0.5" style="color: var(--pt-text-muted);">
+					<p class="text-sm mt-0.5" style="color: var(--pt-text-muted);">
 						{ministryCounts.length === 1 ? 'Ministry' : 'Ministries'}
 					</p>
 				</div>
@@ -1072,8 +1088,8 @@
 						{#each ministryCounts as m}
 							<li class="flex items-center gap-2">
 								<span class="w-2.5 h-2.5 shrink-0" style="background: {getMinistryColor(m.ministry)}; border-radius: 1px;"></span>
-								<span class="text-xs truncate flex-1" style="color: var(--pt-text-secondary);">{m.ministry}</span>
-								<span class="text-xs font-semibold tabular-nums shrink-0 pt-data px-1.5 py-0.5"
+								<span class="text-sm truncate flex-1" style="color: var(--pt-text-secondary);">{m.ministry}</span>
+								<span class="text-sm font-semibold tabular-nums shrink-0 pt-data px-1.5 py-0.5"
 								      style="background: var(--pt-bg-3); color: var(--pt-text-secondary); border-radius: 2px;">
 									{m.count}
 								</span>
