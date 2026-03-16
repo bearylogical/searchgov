@@ -294,7 +294,7 @@ class TemporalGraph:
             )
         else:
             res = await self.graph_service.find_shortest_path(
-                person1, person2, include_metadata
+                person1, person2, people_only=False, ids_only=True
             )
         if res and include_metadata:
             res_metadata = []

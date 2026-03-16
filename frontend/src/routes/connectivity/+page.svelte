@@ -231,6 +231,23 @@
 		return `${start}–${end}`;
 	}
 
+	/** Returns the overlap period between two employment entries at the same org. */
+	function overlapYearLabel(
+		e1?: EmploymentEntry,
+		e2?: EmploymentEntry,
+	): string | undefined {
+		if (!e1?.start_date || !e2?.start_date) return yearRangeLabel(e1 ?? e2);
+		const MAX = '9999-12-31';
+		const s = e1.start_date > e2.start_date ? e1.start_date : e2.start_date;
+		const e1End = e1.end_date ?? MAX;
+		const e2End = e2.end_date ?? MAX;
+		const e = e1End < e2End ? e1End : e2End;
+		if (s > e) return undefined;
+		const startY = s.slice(0, 4);
+		const endY   = e === MAX ? 'now' : e.slice(0, 4);
+		return `${startY}–${endY}`;
+	}
+
 	// ---------------------------------------------------------------------------
 	// Path finding
 	// ---------------------------------------------------------------------------
@@ -271,11 +288,19 @@
 			let yearLabel: string | undefined;
 
 			if (n.node_type === 'person' && next.node_type === 'organization') {
-				const entry = n.employment_profile?.find(e => e.org_id === next.org_id);
-				yearLabel = yearRangeLabel(entry);
+				const myEntry    = n.employment_profile?.find(e => e.org_id === next.org_id);
+				const nextPerson = nodes[i + 2];
+				const theirEntry = nextPerson?.node_type === 'person'
+					? nextPerson.employment_profile?.find(e => e.org_id === next.org_id)
+					: undefined;
+				yearLabel = overlapYearLabel(myEntry, theirEntry);
 			} else if (n.node_type === 'organization' && next.node_type === 'person') {
-				const entry = next.employment_profile?.find(e => e.org_id === n.org_id);
-				yearLabel = yearRangeLabel(entry);
+				const prevPerson = nodes[i - 1];
+				const prevEntry  = prevPerson?.node_type === 'person'
+					? prevPerson.employment_profile?.find(e => e.org_id === n.org_id)
+					: undefined;
+				const myEntry = next.employment_profile?.find(e => e.org_id === n.org_id);
+				yearLabel = overlapYearLabel(prevEntry, myEntry);
 			}
 
 			return { source: n.node_id, target: next.node_id, inPath: true, yearLabel };
