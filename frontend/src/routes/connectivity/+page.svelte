@@ -409,10 +409,14 @@
 
 	function renderD3() {
 		if (!svgEl) return;
-		// Always use actual rendered dimensions for accurate centering
+		// Stop any in-progress simulation before re-rendering to avoid tick race
+		simulation?.stop();
+
+		// Read actual dimensions into LOCAL variables — never mutate reactive state
+		// here or the $effect will re-trigger in a loop.
 		const rect = svgEl.getBoundingClientRect();
-		if (rect.width  > 0) svgWidth  = rect.width;
-		if (rect.height > 0) svgHeight = rect.height;
+		const W = rect.width  > 0 ? rect.width  : svgWidth;
+		const H = rect.height > 0 ? rect.height : svgHeight;
 
 		const svg = d3.select(svgEl);
 		svg.selectAll('*').remove();
@@ -450,13 +454,13 @@
 		const pathNodeIds = simNodes.filter(n => n.inPath).map(n => n.id);
 		const totalPath   = pathNodeIds.length;
 		if (!hasPositions && totalPath > 1) {
-			const margin = svgWidth * 0.1;
-			const span   = svgWidth - 2 * margin;
+			const margin = W * 0.1;
+			const span   = W - 2 * margin;
 			simNodes.forEach(n => {
 				const idx = pathNodeIds.indexOf(n.id);
 				if (idx !== -1) {
 					n.x = margin + (idx / (totalPath - 1)) * span;
-					n.y = svgHeight / 2 + (idx % 2 === 0 ? -20 : 20);
+					n.y = H / 2 + (idx % 2 === 0 ? -20 : 20);
 				}
 			});
 		}
@@ -465,17 +469,17 @@
 			.alpha(hasPositions ? 0.15 : 0.8)
 			.force('link',    d3.forceLink<GNode, GEdge>(simEdges).id(d => d.id).distance(d => d.inPath ? 160 : 100))
 			.force('charge',  d3.forceManyBody().strength(-700))
-			.force('center',  d3.forceCenter(svgWidth / 2, svgHeight / 2).strength(0.25))
+			.force('center',  d3.forceCenter(W / 2, H / 2).strength(0.25))
 			.force('collide', d3.forceCollide<GNode>(d => nodeRadius(d) + 22))
 			// Gentle left-to-right ordering for path nodes to suppress crossings
 			.force('path-x',  d3.forceX<GNode>(d => {
 				const idx = pathNodeIds.indexOf(d.id);
-				if (idx === -1) return svgWidth / 2;
-				const margin = svgWidth * 0.12;
-				return margin + (idx / Math.max(totalPath - 1, 1)) * (svgWidth - 2 * margin);
+				if (idx === -1) return W / 2;
+				const margin = W * 0.12;
+				return margin + (idx / Math.max(totalPath - 1, 1)) * (W - 2 * margin);
 			}).strength(d => d.inPath ? 0.35 : 0.02))
-			.force('path-y',  d3.forceY<GNode>(svgHeight / 2).strength(d => d.inPath ? 0.3 : 0.08))
-			.force('y-center', d3.forceY<GNode>(svgHeight / 2).strength(0.04));
+			.force('path-y',  d3.forceY<GNode>(H / 2).strength(d => d.inPath ? 0.3 : 0.08))
+			.force('y-center', d3.forceY<GNode>(H / 2).strength(0.04));
 
 		// ── Links ──────────────────────────────────────────
 		const link = g.append('g').attr('class', 'links')
@@ -764,7 +768,7 @@
 				<input type="checkbox" bind:checked={temporal}
 					onchange={() => { if (source.selected && target.selected) findPath(); }}
 					style="accent-color: var(--pt-blue); width: 14px; height: 14px;"/>
-				<span class="text-xs" style="color: var(--pt-text-secondary);">Temporal</span>
+				<span class="text-sm" style="color: var(--pt-text-secondary);">Temporal</span>
 				<InfoTip tip="Only finds connections where people were physically working together at the same time." />
 			</label>
 			{#if source.selected && target.selected}
@@ -837,68 +841,72 @@
 		</div>
 	</div>
 
-	<!-- ── Row 3: D3 canvas ─────────────────────────────── -->
-	<section class="flex-1 relative flex flex-col overflow-hidden min-h-[40vh]"
-	         style="background: var(--pt-bg-0);">
-
-		<!-- Status / stat cards / toolbar -->
-		{#if pathResult || pathLoading || pathError}
-			<div class="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 w-full max-w-xl px-3">
-				{#if pathLoading}
-					<div class="px-4 py-1.5 text-sm animate-pulse"
-					     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; color: var(--pt-text-muted);">
-						Searching for connection…
+	<!-- ── Row 3: Status / results toolbar (flex-none, no graph overlap) ── -->
+	{#if pathLoading}
+		<div class="flex-none px-4 py-2 flex items-center gap-2"
+		     style="background: var(--pt-bg-1); border-bottom: 1px solid var(--pt-border);">
+			<div class="w-3 h-3 rounded-full animate-pulse" style="background: var(--pt-blue);"></div>
+			<span class="text-sm" style="color: var(--pt-text-muted);">Searching for connection…</span>
+		</div>
+	{:else if pathError}
+		<div class="flex-none px-4 py-2 text-sm"
+		     style="background: var(--pt-red-tint); border-bottom: 1px solid var(--pt-red); color: #ff7373;">
+			{pathError}
+		</div>
+	{:else if pathResult && pathResult.nodes.length === 0}
+		<div class="flex-none px-4 py-2 text-sm"
+		     style="background: var(--pt-orange-tint); border-bottom: 1px solid var(--pt-orange); color: #ffb366;">
+			No connection found — try disabling Temporal mode
+		</div>
+	{:else if pathResult && pathResult.nodes.length > 0}
+		<!-- ── Stat bar + graph controls ───────────────────── -->
+		<div class="flex-none px-4 py-2 flex items-center justify-between gap-3 flex-wrap"
+		     style="background: var(--pt-bg-1); border-bottom: 1px solid var(--pt-border);">
+			<!-- Stat chips — horizontal scroll on mobile -->
+			<div class="flex items-center gap-2 overflow-x-auto" style="scrollbar-width: none;">
+				<div class="flex items-baseline gap-1.5 shrink-0">
+					<span class="text-xl font-bold tabular-nums pt-data" style="color: #ad99ff;">{degreeBadge}</span>
+					<span class="pt-label">{degreeBadge === 1 ? 'Degree' : 'Degrees'}</span>
+				</div>
+				{#if connectionStats.ministries > 0}
+					<span style="color: var(--pt-border-muted);">·</span>
+					<div class="flex items-baseline gap-1.5 shrink-0">
+						<span class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">{connectionStats.ministries}</span>
+						<span class="pt-label">{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}</span>
 					</div>
-				{:else if pathError}
-					<div class="px-4 py-1.5 text-sm"
-					     style="background: var(--pt-red-tint); border: 1px solid var(--pt-red); border-radius: 2px; color: #ff7373;">
-						{pathError}
+				{/if}
+				{#if connectionStats.agencies > 0}
+					<span style="color: var(--pt-border-muted);">·</span>
+					<div class="flex items-baseline gap-1.5 shrink-0">
+						<span class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">{connectionStats.agencies}</span>
+						<span class="pt-label">{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}</span>
 					</div>
-				{:else if pathResult && pathResult.length === 0}
-					<div class="px-4 py-1.5 text-sm"
-					     style="background: var(--pt-orange-tint); border: 1px solid var(--pt-orange); border-radius: 2px; color: #ffb366;">
-						No connection found — try disabling Temporal mode
-					</div>
-				{:else if pathResult}
-					<!-- Stat cards — horizontal scroll on mobile -->
-					<div class="flex gap-2 overflow-x-auto pb-1 w-full justify-center" style="scrollbar-width: none;">
-						<div class="pt-card shrink-0 text-center min-w-[72px]" style="padding: 0.625rem 1rem;">
-							<p class="text-2xl font-bold tabular-nums leading-none pt-data" style="color: #ad99ff;">{degreeBadge}</p>
-							<p class="pt-label mt-1">{degreeBadge === 1 ? 'Degree' : 'Degrees'}</p>
-						</div>
-						{#if connectionStats.ministries > 0}
-							<div class="pt-card shrink-0 text-center min-w-[72px]" style="padding: 0.625rem 1rem;">
-								<p class="text-2xl font-bold tabular-nums leading-none pt-data" style="color: var(--pt-text-primary);">{connectionStats.ministries}</p>
-								<p class="pt-label mt-1">{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}</p>
-							</div>
-						{/if}
-						{#if connectionStats.agencies > 0}
-							<div class="pt-card shrink-0 text-center min-w-[72px]" style="padding: 0.625rem 1rem;">
-								<p class="text-2xl font-bold tabular-nums leading-none pt-data" style="color: var(--pt-text-primary);">{connectionStats.agencies}</p>
-								<p class="pt-label mt-1">{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}</p>
-							</div>
-						{/if}
-						{#if overlapTimeline}
-							<div class="pt-card shrink-0 text-center min-w-[80px]" style="padding: 0.625rem 1rem;">
-								<p class="text-xl font-bold tabular-nums leading-none pt-data" style="color: var(--pt-text-primary);">{overlapTimeline}</p>
-								<p class="pt-label mt-1">Timeline</p>
-							</div>
-						{/if}
-					</div>
-					<!-- Graph control buttons -->
-					<div class="flex gap-1.5 flex-wrap justify-center">
-						<button onclick={resetGraph} class="pt-button pt-button-outlined">↺ Reset</button>
-						<button onclick={expandAllNodes} disabled={expandingAll} class="pt-button pt-button-outlined disabled:opacity-50 disabled:cursor-not-allowed">
-							{expandingAll ? '⏳ Expanding…' : '⊕ Expand All'}
-						</button>
-						<button onclick={collapseExpanded} disabled={!graphNodes.some(n => !n.inPath)}
-							class="pt-button pt-button-outlined disabled:opacity-40 disabled:cursor-not-allowed">
-							⊖ Collapse
-						</button>
+				{/if}
+				{#if overlapTimeline}
+					<span style="color: var(--pt-border-muted);">·</span>
+					<div class="flex items-baseline gap-1.5 shrink-0">
+						<span class="text-xl font-bold tabular-nums pt-data" style="color: var(--pt-text-primary);">{overlapTimeline}</span>
+						<span class="pt-label">Timeline</span>
 					</div>
 				{/if}
 			</div>
-		{/if}
+			<!-- Graph controls -->
+			<div class="flex gap-1.5 shrink-0">
+				<button onclick={resetGraph} class="pt-button pt-button-outlined">↺ Reset</button>
+				<button onclick={expandAllNodes} disabled={expandingAll} class="pt-button pt-button-outlined disabled:opacity-50 disabled:cursor-not-allowed">
+					{expandingAll ? '⏳ Expanding…' : '⊕ Expand All'}
+				</button>
+				<button onclick={collapseExpanded} disabled={!graphNodes.some(n => !n.inPath)}
+					class="pt-button pt-button-outlined disabled:opacity-40 disabled:cursor-not-allowed">
+					⊖ Collapse
+				</button>
+			</div>
+		</div>
+	{/if}
+
+	<!-- ── Row 4: D3 canvas (clean — no overlay widgets) ── -->
+	<section class="flex-1 relative overflow-hidden min-h-[35vh]"
+	         style="background: var(--pt-bg-0);">
 
 		<!-- Empty state -->
 		{#if graphNodes.length === 0 && !pathLoading}
@@ -908,13 +916,13 @@
 						<path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
 					</svg>
 					{#if !source.selected && !target.selected}
-						<p class="text-xs" style="color: var(--pt-text-muted);">Search for two people to find their connection</p>
+						<p class="text-sm" style="color: var(--pt-text-muted);">Search for two people to find their connection</p>
 					{:else if source.selected && !target.selected}
-						<p class="text-xs" style="color: var(--pt-text-muted);">Now search for a target person</p>
+						<p class="text-sm" style="color: var(--pt-text-muted);">Now search for a target person</p>
 					{:else if !source.selected && target.selected}
-						<p class="text-xs" style="color: var(--pt-text-muted);">Now search for a source person</p>
+						<p class="text-sm" style="color: var(--pt-text-muted);">Now search for a source person</p>
 					{:else}
-						<p class="text-xs" style="color: var(--pt-text-muted);">Click "Find Connection" to search</p>
+						<p class="text-sm" style="color: var(--pt-text-muted);">Click "Find Connection" to search</p>
 					{/if}
 				</div>
 			</div>
@@ -973,7 +981,7 @@
 				<div class="space-y-0.5">
 					<div class="flex items-center gap-1.5">
 						<span class="w-2 h-2 shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}; border-radius: 1px;"></span>
-						<p class="text-xs" style="color: var(--pt-text-secondary);">{hoveredNode.ministry}</p>
+						<p class="text-sm" style="color: var(--pt-text-secondary);">{hoveredNode.ministry}</p>
 					</div>
 					<p class="text-sm pl-3.5" style="color: var(--pt-text-muted);">↳ {hoveredNode.agencyName}</p>
 				</div>
@@ -981,18 +989,18 @@
 			{:else if hoveredNode.ministry}
 				<div class="flex items-center gap-1.5">
 					<span class="w-2 h-2 rotate-45 shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)};"></span>
-					<p class="text-xs" style="color: var(--pt-text-secondary);">{hoveredNode.ministry}</p>
+					<p class="text-sm" style="color: var(--pt-text-secondary);">{hoveredNode.ministry}</p>
 				</div>
 				<p class="pt-label">Ministry</p>
 			{/if}
 		{:else}
 			{#if hoveredNode.role}
-				<p class="text-xs" style="color: var(--pt-text-secondary);">{hoveredNode.role}</p>
+				<p class="text-sm" style="color: var(--pt-text-secondary);">{hoveredNode.role}</p>
 			{/if}
 			{#if hoveredNode.ministry}
 				<div class="flex items-center gap-1.5">
 					<span class="w-2 h-2 shrink-0" style="background: {getMinistryColor(hoveredNode.ministry)}; border-radius: 1px;"></span>
-					<p class="text-xs" style="color: var(--pt-text-muted);">{hoveredNode.ministry}</p>
+					<p class="text-sm" style="color: var(--pt-text-muted);">{hoveredNode.ministry}</p>
 				</div>
 			{/if}
 			{#if adjOrgs.length > 0}
@@ -1008,7 +1016,7 @@
 					</ul>
 				</div>
 			{/if}
-			<p class="text-xs" style="color: var(--pt-text-muted);">
+			<p class="text-sm" style="color: var(--pt-text-muted);">
 				{hoveredNode.isSource ? '▲ Source' : hoveredNode.isTarget ? '▼ Target' : hoveredNode.inPath ? 'Path node' : 'Expanded'}
 				· Click for stats
 			</p>
@@ -1043,7 +1051,7 @@
 					{#if modalNode.ministry}
 						<div class="flex items-center gap-1.5 mt-0.5">
 							<span class="w-2 h-2" style="background: {getMinistryColor(modalNode.ministry)}; border-radius: 1px;"></span>
-							<p class="text-xs" style="color: var(--pt-text-muted);">{modalNode.ministry}</p>
+							<p class="text-sm" style="color: var(--pt-text-muted);">{modalNode.ministry}</p>
 						</div>
 					{/if}
 				</div>
