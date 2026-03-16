@@ -791,8 +791,12 @@
 				<InfoTip tip="Only finds connections where people were physically working together at the same time." />
 			</label>
 			{#if source.selected && target.selected}
-				<button onclick={findPath} disabled={pathLoading} class="pt-button pt-button-primary">
-					{pathLoading ? 'Searching…' : 'Find Connection'}
+				<button onclick={findPath}
+				        disabled={pathLoading || source.loading || target.loading}
+				        class="pt-button pt-button-primary">
+					{#if pathLoading}Searching…
+					{:else if source.loading || target.loading}Loading career…
+					{:else}Find Connection{/if}
 				</button>
 			{/if}
 		</div>
@@ -816,10 +820,16 @@
 					{confidenceThreshold}
 					selected={source.selected}
 					accentColor="blue"
+					disabled={target.loading}
 					onselect={(p) => selectPerson(source, p)}
 					onclear={() => clearSlot(source)}
 				/>
-				{#if source.selected && source.nameVariants.length > 0}
+				{#if source.loading}
+					<div class="flex items-center gap-2 py-1" style="color: var(--pt-text-muted);">
+						<div class="w-2.5 h-2.5 rounded-full animate-pulse shrink-0" style="background: var(--pt-blue);"></div>
+						<span class="text-xs">Loading career timeline…</span>
+					</div>
+				{:else if source.selected && source.nameVariants.length > 0}
 					<NameVariantZones
 						nameVariants={source.nameVariants}
 						activeNames={source.activeNames}
@@ -843,10 +853,16 @@
 					{confidenceThreshold}
 					selected={target.selected}
 					accentColor="emerald"
+					disabled={source.loading}
 					onselect={(p) => selectPerson(target, p)}
 					onclear={() => clearSlot(target)}
 				/>
-				{#if target.selected && target.nameVariants.length > 0}
+				{#if target.loading}
+					<div class="flex items-center gap-2 py-1" style="color: var(--pt-text-muted);">
+						<div class="w-2.5 h-2.5 rounded-full animate-pulse shrink-0" style="background: var(--pt-green);"></div>
+						<span class="text-xs">Loading career timeline…</span>
+					</div>
+				{:else if target.selected && target.nameVariants.length > 0}
 					<NameVariantZones
 						nameVariants={target.nameVariants}
 						activeNames={target.activeNames}

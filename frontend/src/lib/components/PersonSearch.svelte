@@ -12,6 +12,11 @@
 		selected?: PersonResult | null;
 		/** Accent colour used for the selected chip and focus ring. */
 		accentColor?: 'blue' | 'emerald';
+		/**
+		 * When true the input is disabled and a "loading" hint is shown.
+		 * Useful to block the other slot while the first slot's career data loads.
+		 */
+		disabled?: boolean;
 		onselect: (person: PersonResult) => void;
 		onclear?: () => void;
 	}
@@ -21,6 +26,7 @@
 		confidenceThreshold,
 		selected = null,
 		accentColor = 'blue',
+		disabled = false,
 		onselect,
 		onclear
 	}: Props = $props();
@@ -97,19 +103,33 @@
 {:else}
 	<!-- Search input — touch-friendly height (min 44px touch target) -->
 	<div class="relative">
-		<svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
-		     style="color: var(--pt-text-muted);"
-		     fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-			<path stroke-linecap="round" stroke-linejoin="round"
-			      d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
-		</svg>
+		{#if disabled}
+			<!-- Loading spinner while the other slot's career is resolving -->
+			<div class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5">
+				<svg class="animate-spin w-3.5 h-3.5" style="color: var(--pt-text-muted);"
+				     fill="none" viewBox="0 0 24 24">
+					<circle class="opacity-25" cx="12" cy="12" r="10"
+					        stroke="currentColor" stroke-width="3"/>
+					<path class="opacity-75" fill="currentColor"
+					      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+				</svg>
+			</div>
+		{:else}
+			<svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+			     style="color: var(--pt-text-muted);"
+			     fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round"
+				      d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
+			</svg>
+		{/if}
 		<input
 			type="text"
-			{placeholder}
+			placeholder={disabled ? 'Waiting for career data…' : placeholder}
 			bind:value={query}
-			oninput={onInput}
+			oninput={disabled ? undefined : onInput}
+			disabled={disabled}
 			class="pt-input"
-			style="padding-left: 2rem; min-height: 40px;"
+			style="padding-left: 2rem; min-height: 40px; {disabled ? 'opacity: 0.45; cursor: not-allowed; pointer-events: none;' : ''}"
 		/>
 	</div>
 
