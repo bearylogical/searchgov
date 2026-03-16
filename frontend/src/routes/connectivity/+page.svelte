@@ -936,7 +936,9 @@
 {/if}
 
 <!-- ── Row 4: Timeline visualization ─────────── -->
-<div class="flex-1 min-h-[35vh] overflow-hidden">
+<!-- relative + no overflow clipping: PathTimeline anchors itself with
+     absolute inset-0 and manages its own scroll context internally -->
+<div class="flex-1 relative" style="min-height: 35vh;">
 	<PathTimeline nodes={graphNodes} edges={graphEdges} {getMinistryColor} />
 </div>
 </div>
