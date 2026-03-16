@@ -1,10 +1,13 @@
 import networkx as nx
+from datetime import date as date_type
 from typing import List, Dict, Any, Union
 from src.services.query import QueryService
 from src.services.organisations import OrganisationService
 from loguru import logger
 from itertools import combinations
 from collections import defaultdict
+
+_MAX_DATE = date_type.max  # sentinel for open-ended employment
 
 
 class GraphService:
@@ -59,12 +62,16 @@ class GraphService:
                 p1_id = p1_record["person_id"]
                 p2_id = p2_record["person_id"]
 
-                # Classic interval overlap check
+                # Classic interval overlap check.
+                # Treat NULL end_date (still employed) as MAX_DATE so
+                # comparisons never raise TypeError against None.
+                p1_end = p1_record["end_date"] or _MAX_DATE
+                p2_end = p2_record["end_date"] or _MAX_DATE
                 p1_starts_before_p2_ends = (
-                    p1_record["start_date"] <= p2_record["end_date"]
+                    p1_record["start_date"] <= p2_end
                 )
                 p2_starts_before_p1_ends = (
-                    p2_record["start_date"] <= p1_record["end_date"]
+                    p2_record["start_date"] <= p1_end
                 )
 
                 if p1_starts_before_p2_ends and p2_starts_before_p1_ends:
@@ -426,28 +433,23 @@ class GraphService:
                 )
                 structured_path.append({"type": "person", "id": p2_id})
 
-        # Step 5: Format the output based on the 'ids_only' flag
-        if ids_only:
-            final_path_names = []
-            for item in structured_path:
-                if item["type"] == "person":
-                    node_id = f"person_{item['id']}"
-                    if ids_only:
-                        final_path_names.append(node_id)
-                    else:
-                        final_path_names.append(
-                            colleague_G.nodes[node_id]["name"]
-                        )
-                else:  # type is 'org'
-                    node_id = f"org_{item['id']}"
-                    if ids_only:
-                        final_path_names.append(node_id)
-                    else:
-                        final_path_names.append(
-                            full_G.nodes[node_id]["name"]
-                        )
+        # Step 5: Format the output as prefixed node IDs or plain names
+        final_path = []
+        for item in structured_path:
+            if item["type"] == "person":
+                node_id = f"person_{item['id']}"
+                final_path.append(
+                    node_id if ids_only
+                    else colleague_G.nodes[node_id]["name"]
+                )
+            else:  # type is 'org'
+                node_id = f"org_{item['id']}"
+                final_path.append(
+                    node_id if ids_only
+                    else full_G.nodes[node_id]["name"]
+                )
 
-            return final_path_names
+        return final_path
 
     async def calculate_centrality_metrics(
         self, target_date: str = None
