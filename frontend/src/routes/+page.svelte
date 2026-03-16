@@ -68,7 +68,26 @@
 {#if !$isAuthenticated}
 	<div class="flex-1 flex items-center justify-center p-8">
 		<div class="text-center max-w-sm">
-			<img src="/lion_search.png" alt="SGDI Analytics" class="w-20 h-20 object-contain mx-auto mb-6" />
+			<!-- People-analytics network graph icon -->
+			<svg class="w-20 h-20 mx-auto mb-6" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+				<line x1="40" y1="14" x2="16" y2="42" stroke="#137CBD" stroke-width="2" stroke-opacity="0.6"/>
+				<line x1="40" y1="14" x2="64" y2="42" stroke="#137CBD" stroke-width="2" stroke-opacity="0.6"/>
+				<line x1="16" y1="42" x2="40" y2="66" stroke="#137CBD" stroke-width="2" stroke-opacity="0.6"/>
+				<line x1="64" y1="42" x2="40" y2="66" stroke="#137CBD" stroke-width="2" stroke-opacity="0.6"/>
+				<line x1="16" y1="42" x2="64" y2="42" stroke="#137CBD" stroke-width="1.5" stroke-opacity="0.35" stroke-dasharray="5,4"/>
+				<circle cx="40" cy="14" r="9" fill="#2D72D2"/>
+				<circle cx="40" cy="11" r="2.5" fill="white" opacity="0.9"/>
+				<path d="M33 18.5 Q33 15.5 40 15.5 Q47 15.5 47 18.5" stroke="white" stroke-width="1.5" fill="none" opacity="0.9"/>
+				<circle cx="16" cy="42" r="7" fill="#137CBD" opacity="0.9"/>
+				<circle cx="16" cy="39.5" r="2" fill="white" opacity="0.85"/>
+				<path d="M11 44.5 Q11 42 16 42 Q21 42 21 44.5" stroke="white" stroke-width="1.5" fill="none" opacity="0.85"/>
+				<circle cx="64" cy="42" r="7" fill="#137CBD" opacity="0.9"/>
+				<circle cx="64" cy="39.5" r="2" fill="white" opacity="0.85"/>
+				<path d="M59 44.5 Q59 42 64 42 Q69 42 69 44.5" stroke="white" stroke-width="1.5" fill="none" opacity="0.85"/>
+				<circle cx="40" cy="66" r="9" fill="#2D72D2"/>
+				<circle cx="40" cy="63" r="2.5" fill="white" opacity="0.9"/>
+				<path d="M33 68.5 Q33 65.5 40 65.5 Q47 65.5 47 68.5" stroke="white" stroke-width="1.5" fill="none" opacity="0.9"/>
+			</svg>
 			<h1 class="text-xl font-bold mb-2 tracking-tight" style="color: var(--pt-text-primary);">SGDI Analytics</h1>
 			<p class="mb-8 text-sm leading-relaxed" style="color: var(--pt-text-muted);">
 				Explore Singapore's government employment data — career histories,
