@@ -330,7 +330,7 @@
 
 	// ── Continuity lines: same person across multiple agency rows ────────────────
 
-	interface ConnLine { x1: number; y1: number; x2: number; y2: number; color: string; }
+	interface ConnLine { x1: number; y1: number; x2: number; y2: number; color: string; personId: string; }
 
 	const continuityLines = $derived.by((): ConnLine[] => {
 		const byPerson = new Map<string, RenderedBlock[]>();
@@ -346,7 +346,7 @@
 			for (let i = 0; i < sorted.length - 1; i++) {
 				const from = sorted[i], to = sorted[i + 1];
 				if (from.agencyId === to.agencyId) continue; // same row — no line needed
-				lines.push({ x1: from.rx, y1: from.cy, x2: to.bx, y2: to.cy, color: from.block.color });
+				lines.push({ x1: from.rx, y1: from.cy, x2: to.bx, y2: to.cy, color: from.block.color, personId: from.block.personId });
 			}
 		}
 		return lines;
@@ -354,7 +354,7 @@
 
 	// ── Path arrows: connection between consecutive path persons ─────────────────
 
-	interface Arrow { x1: number; y1: number; x2: number; y2: number; sameRow: boolean; overlapX: number; }
+	interface Arrow { x1: number; y1: number; x2: number; y2: number; sameRow: boolean; overlapX: number; p1Id: string; p2Id: string; }
 
 	const pathArrows = $derived.by((): Arrow[] => {
 		const rbByPerson = new Map<string, RenderedBlock[]>();
@@ -388,15 +388,17 @@
 				x1: r1.cx, y1: sameRow ? r1.by + r1.bh : r1.cy,
 				x2: r2.cx, y2: sameRow ? r2.by          : r2.cy,
 				sameRow, overlapX,
+				p1Id: pathPersonOrder[i], p2Id: pathPersonOrder[i + 1],
 			});
 		}
 		return arrows;
 	});
 
-	// ── Tooltip ──────────────────────────────────────────────────────────────────
-	let hov  = $state<Block | null>(null);
-	let hx   = $state(0);
-	let hy   = $state(0);
+	// ── Hover state ──────────────────────────────────────────────────────────────
+	let hov             = $state<Block | null>(null);
+	let hx              = $state(0);
+	let hy              = $state(0);
+	let hoveredPersonId = $state<string | null>(null);
 
 	// ── Resize ───────────────────────────────────────────────────────────────────
 	onMount(() => {
@@ -552,24 +554,35 @@
 						{@const rSize  = Math.max(7.5, nSize - 2)}
 						{@const hasRole = !!b.role && bh > 26}
 
+						{@const fbDimmed = hoveredPersonId !== null && hoveredPersonId !== b.personId}
 						{#if b.isFallback}
-							<rect x={bx} y={by_} width={bw} height={bh} fill={b.color} rx="2" opacity="0.2" />
+							<rect x={bx} y={by_} width={bw} height={bh} fill={b.color} rx="2" opacity={fbDimmed ? 0.05 : 0.2} />
 							<rect x={bx} y={by_} width={bw} height={bh}
 							      fill="none" stroke={b.color} stroke-width="1.5"
-							      stroke-dasharray="4,3" rx="2" opacity="0.65" />
+							      stroke-dasharray="4,3" rx="2" opacity={fbDimmed ? 0.1 : 0.65} />
 							{#if bw > 18}
 								<text x={midX} y={midY + 4} text-anchor="middle"
 								      fill={b.color} font-size={nSize} font-weight="700"
+								      opacity={fbDimmed ? 0.1 : 1}
 								      pointer-events="none">{b.initials}</text>
 							{/if}
 						{:else}
+							{@const isHov    = hoveredPersonId === b.personId}
+							{@const isDimmed = hoveredPersonId !== null && !isHov}
 							<!-- Drop shadow + main block -->
-							<rect x={bx + 1} y={by_ + 1} width={bw} height={bh} fill="rgba(0,0,0,0.2)" rx="2" />
+							<rect x={bx + 1} y={by_ + 1} width={bw} height={bh} fill="rgba(0,0,0,0.2)" rx="2"
+							      opacity={isDimmed ? 0.1 : 0.9} />
 							<rect x={bx} y={by_} width={bw} height={bh}
-							      fill={b.color} rx="2" opacity="0.9"
-							      style="cursor: pointer;"
-							      onmouseenter={(e) => { hov = b; hx = e.clientX; hy = e.clientY; }}
-							      onmouseleave={() => { hov = null; }} />
+							      fill={b.color} rx="2" opacity={isDimmed ? 0.2 : 0.9}
+							      style="cursor: pointer; transition: opacity 0.15s;"
+							      onmouseenter={(e) => { hov = b; hx = e.clientX; hy = e.clientY; hoveredPersonId = b.personId; }}
+							      onmouseleave={() => { hov = null; hoveredPersonId = null; }} />
+							<!-- Highlight ring when this block is hovered -->
+							{#if isHov}
+								<rect x={bx - 2} y={by_ - 2} width={bw + 4} height={bh + 4}
+								      fill="none" stroke="white" stroke-width="2" rx="3"
+								      opacity="0.7" pointer-events="none" />
+							{/if}
 							{#if hasLbl}
 								<rect x={bx} y={by_} width={bw} height={3} fill="white" rx="2" opacity="0.25" pointer-events="none" />
 							{/if}
@@ -619,30 +632,33 @@
 			<!-- ── Continuity lines: same person across different agency rows ── -->
 			{#each continuityLines as cl}
 				{@const dx = cl.x2 - cl.x1}
-				{@const mid = cl.x1 + dx * 0.5}
+				{@const clDimmed = hoveredPersonId !== null && hoveredPersonId !== cl.personId}
 				<!-- Bezier: exit right side of block, arc over to left side of next block -->
 				<path d="M {cl.x1} {cl.y1} C {cl.x1 + Math.max(30, dx * 0.35)} {cl.y1} {cl.x2 - Math.max(30, dx * 0.35)} {cl.y2} {cl.x2} {cl.y2}"
-				      fill="none" stroke={cl.color} stroke-width="1.5"
-				      stroke-dasharray="5,3" opacity="0.5"
+				      fill="none" stroke={cl.color} stroke-width={clDimmed ? 1 : 1.5}
+				      stroke-dasharray="5,3" opacity={clDimmed ? 0.1 : 0.5}
 				      marker-end={cl.color === COLOR_SOURCE ? 'url(#arr-cont-blue)' : cl.color === COLOR_TARGET ? 'url(#arr-cont-green)' : 'url(#arr-cont-indigo)'} />
 			{/each}
 
 			<!-- ── Path arrows: linkage between consecutive path persons ── -->
 			{#each pathArrows as pa}
+				{@const arrowDimmed = hoveredPersonId !== null && hoveredPersonId !== pa.p1Id && hoveredPersonId !== pa.p2Id}
 				{#if pa.sameRow}
 					<!-- Same agency row: vertical connecting bracket at overlap midpoint -->
 					<line x1={pa.overlapX} y1={pa.y1} x2={pa.overlapX} y2={pa.y2}
 					      stroke="rgba(255,255,255,0.45)" stroke-width="1.5"
+					      opacity={arrowDimmed ? 0.1 : 1}
 					      marker-end="url(#arr-fwd)" />
 					<!-- Small horizontal ticks at each end -->
 					<line x1={pa.overlapX - 6} y1={pa.y1} x2={pa.overlapX + 6} y2={pa.y1}
-					      stroke="rgba(255,255,255,0.35)" stroke-width="1" />
+					      stroke="rgba(255,255,255,0.35)" stroke-width="1" opacity={arrowDimmed ? 0.1 : 1} />
 					<line x1={pa.overlapX - 6} y1={pa.y2} x2={pa.overlapX + 6} y2={pa.y2}
-					      stroke="rgba(255,255,255,0.35)" stroke-width="1" />
+					      stroke="rgba(255,255,255,0.35)" stroke-width="1" opacity={arrowDimmed ? 0.1 : 1} />
 				{:else}
 					<!-- Different rows: curved arrow -->
 					<path d="M {pa.x1} {pa.y1} C {pa.x1} {(pa.y1 + pa.y2) / 2} {pa.x2} {(pa.y1 + pa.y2) / 2} {pa.x2} {pa.y2}"
 					      fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"
+					      opacity={arrowDimmed ? 0.1 : 1}
 					      marker-end="url(#arr-fwd)" />
 				{/if}
 			{/each}
