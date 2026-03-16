@@ -447,18 +447,19 @@
 
 		simulation = d3.forceSimulation<GNode>(simNodes)
 			.alpha(hasPositions ? 0.15 : 0.8)
-			.force('link',    d3.forceLink<GNode, GEdge>(simEdges).id(d => d.id).distance(d => d.inPath ? 140 : 90))
-			.force('charge',  d3.forceManyBody().strength(-500))
-			.force('center',  d3.forceCenter(svgWidth / 2, svgHeight / 2).strength(0.05))
-			.force('collide', d3.forceCollide<GNode>(d => nodeRadius(d) + 16))
+			.force('link',    d3.forceLink<GNode, GEdge>(simEdges).id(d => d.id).distance(d => d.inPath ? 160 : 100))
+			.force('charge',  d3.forceManyBody().strength(-700))
+			.force('center',  d3.forceCenter(svgWidth / 2, svgHeight / 2).strength(0.25))
+			.force('collide', d3.forceCollide<GNode>(d => nodeRadius(d) + 22))
 			// Gentle left-to-right ordering for path nodes to suppress crossings
 			.force('path-x',  d3.forceX<GNode>(d => {
 				const idx = pathNodeIds.indexOf(d.id);
 				if (idx === -1) return svgWidth / 2;
-				const margin = svgWidth * 0.1;
+				const margin = svgWidth * 0.12;
 				return margin + (idx / Math.max(totalPath - 1, 1)) * (svgWidth - 2 * margin);
-			}).strength(d => d.inPath ? 0.2 : 0.01))
-			.force('path-y',  d3.forceY<GNode>(svgHeight / 2).strength(d => d.inPath ? 0.1 : 0.01));
+			}).strength(d => d.inPath ? 0.35 : 0.02))
+			.force('path-y',  d3.forceY<GNode>(svgHeight / 2).strength(d => d.inPath ? 0.3 : 0.08))
+			.force('y-center', d3.forceY<GNode>(svgHeight / 2).strength(0.04));
 
 		// ── Links ──────────────────────────────────────────
 		const link = g.append('g').attr('class', 'links')
@@ -476,13 +477,13 @@
 			.data(simEdges.filter(e => e.yearLabel))
 			.join('text')
 			.attr('text-anchor', 'middle')
-			.attr('font-size', '10px')
-			.attr('font-weight', '500')
-			.attr('fill', '#6366f1')
-			// White halo for readability over the edge line
+			.attr('font-size', '12px')
+			.attr('font-weight', '600')
+			.attr('fill', '#a5b4fc')
+			// Dark halo for readability over the dark background
 			.style('paint-order', 'stroke')
-			.attr('stroke', 'white')
-			.attr('stroke-width', 3)
+			.attr('stroke', '#1C2127')
+			.attr('stroke-width', 4)
 			.attr('stroke-linejoin', 'round')
 			.attr('pointer-events', 'none')
 			.text(d => d.yearLabel!);
@@ -533,7 +534,7 @@
 
 		personNodes.append('text')
 			.attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
-			.attr('fill', 'white').attr('font-size', '13px').attr('font-weight', '700')
+			.attr('fill', 'white').attr('font-size', '15px').attr('font-weight', '700')
 			.attr('letter-spacing', '0.5px').attr('pointer-events', 'none')
 			.text(d => d.name.slice(0, 2).toUpperCase());
 
@@ -561,7 +562,7 @@
 		// ── Label inside org shape — short identifier ─────────
 		orgNodes.append('text')
 			.attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
-			.attr('fill', 'white').attr('font-size', '9px').attr('font-weight', '600')
+			.attr('fill', 'white').attr('font-size', '11px').attr('font-weight', '600')
 			.attr('pointer-events', 'none')
 			.text(d => truncate(d.agencyName ?? d.ministry ?? d.name, 13));
 
@@ -569,27 +570,31 @@
 		// Person nodes: single line (name only)
 		personNodes.append('text')
 			.attr('text-anchor', 'middle')
-			.attr('y', d => nodeRadius(d) + 17)
-			.attr('fill', '#1f2937').attr('font-size', '12px')
+			.attr('y', d => nodeRadius(d) + 20)
+			.attr('fill', '#d3dce6').attr('font-size', '13px')
 			.attr('font-weight', d => (d.isSource || d.isTarget) ? '700' : '500')
+			.style('paint-order', 'stroke')
+			.attr('stroke', '#1C2127').attr('stroke-width', 3).attr('stroke-linejoin', 'round')
 			.attr('pointer-events', 'none')
 			.text(d => truncate(d.name, 24));
 
 		// Org nodes: 2-line (org name + ministry in smaller text for agencies)
 		orgNodes.each(function(d) {
-			const yBase = d.isMinistry ? 32 : 28;
+			const yBase = d.isMinistry ? 35 : 30;
 			const text = d3.select<SVGGElement, GNode>(this).append('text')
 				.attr('text-anchor', 'middle')
-				.attr('pointer-events', 'none');
+				.attr('pointer-events', 'none')
+				.style('paint-order', 'stroke')
+				.attr('stroke', '#1C2127').attr('stroke-width', 3).attr('stroke-linejoin', 'round');
 			text.append('tspan')
 				.attr('x', 0).attr('y', yBase)
-				.attr('fill', '#1f2937').attr('font-size', '11px').attr('font-weight', '500')
+				.attr('fill', '#d3dce6').attr('font-size', '12px').attr('font-weight', '500')
 				.text(truncate(d.agencyName ?? d.name, 22));
 			if (d.agencyName && d.ministry) {
 				text.append('tspan')
-					.attr('x', 0).attr('dy', '1.25em')
+					.attr('x', 0).attr('dy', '1.3em')
 					.attr('fill', getMinistryColor(d.ministry))
-					.attr('font-size', '9px')
+					.attr('font-size', '11px').attr('font-weight', '600')
 					.text(truncate(d.ministry, 22));
 			}
 		});
@@ -598,11 +603,11 @@
 		personNodes.filter(d => d.isSource || d.isTarget)
 			.append('text')
 			.attr('text-anchor', 'middle')
-			.attr('y', d => nodeRadius(d) + 34)
-			.attr('fill', d => d.isSource ? '#2563eb' : '#059669')
-			.attr('font-size', '11px').attr('font-weight', '700').attr('letter-spacing', '0.3px')
+			.attr('y', d => nodeRadius(d) + 38)
+			.attr('fill', d => d.isSource ? '#68b9e5' : '#3dcc91')
+			.attr('font-size', '12px').attr('font-weight', '700').attr('letter-spacing', '0.5px')
 			.attr('pointer-events', 'none')
-			.text(d => d.isSource ? '▲ Source' : '▼ Target');
+			.text(d => d.isSource ? '▲ SOURCE' : '▼ TARGET');
 
 		// ── Tick ───────────────────────────────────────────
 		simulation.on('tick', () => {
