@@ -878,35 +878,35 @@
 		</div>
 	{:else if pathResult && pathResult.nodes.length > 0}
 		<!-- ── Stat cards + graph controls ─────────────────── -->
-		<div class="flex-none px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap"
-		     style="background: var(--pt-bg-1); border-bottom: 1px solid var(--pt-border);">
+		<div class="flex-none px-3 py-2 flex items-center justify-between gap-3 flex-wrap"
+		     style="background: var(--pt-bg-0); border-bottom: 1px solid var(--pt-border-muted);">
 			<!-- Stat cards row -->
-			<div class="flex items-stretch gap-2 overflow-x-auto" style="scrollbar-width: none;">
+			<div class="flex items-stretch gap-1.5 overflow-x-auto" style="scrollbar-width: none;">
 				<!-- Degrees -->
-				<div class="flex flex-col items-center justify-center px-4 py-2 shrink-0"
-				     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; min-width: 72px;">
-					<span class="text-2xl font-bold tabular-nums pt-data leading-none" style="color: #ad99ff;">{degreeBadge}</span>
-					<span class="pt-label mt-1">{degreeBadge === 1 ? 'Degree' : 'Degrees'}</span>
+				<div class="flex flex-col items-center justify-center px-3 py-1.5 shrink-0"
+				     style="background: var(--pt-bg-1); border: 1px solid var(--pt-border-muted); border-radius: 2px; min-width: 60px;">
+					<span class="text-base font-bold tabular-nums pt-data leading-none" style="color: #ad99ff;">{degreeBadge}</span>
+					<span class="pt-label mt-0.5" style="font-size: 0.65rem;">{degreeBadge === 1 ? 'Degree' : 'Degrees'}</span>
 				</div>
 				{#if connectionStats.ministries > 0}
-				<div class="flex flex-col items-center justify-center px-4 py-2 shrink-0"
-				     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; min-width: 72px;">
-					<span class="text-2xl font-bold tabular-nums pt-data leading-none" style="color: var(--pt-text-primary);">{connectionStats.ministries}</span>
-					<span class="pt-label mt-1">{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}</span>
+				<div class="flex flex-col items-center justify-center px-3 py-1.5 shrink-0"
+				     style="background: var(--pt-bg-1); border: 1px solid var(--pt-border-muted); border-radius: 2px; min-width: 60px;">
+					<span class="text-base font-bold tabular-nums pt-data leading-none" style="color: var(--pt-text-primary);">{connectionStats.ministries}</span>
+					<span class="pt-label mt-0.5" style="font-size: 0.65rem;">{connectionStats.ministries === 1 ? 'Ministry' : 'Ministries'}</span>
 				</div>
 				{/if}
 				{#if connectionStats.agencies > 0}
-				<div class="flex flex-col items-center justify-center px-4 py-2 shrink-0"
-				     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; min-width: 72px;">
-					<span class="text-2xl font-bold tabular-nums pt-data leading-none" style="color: var(--pt-text-primary);">{connectionStats.agencies}</span>
-					<span class="pt-label mt-1">{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}</span>
+				<div class="flex flex-col items-center justify-center px-3 py-1.5 shrink-0"
+				     style="background: var(--pt-bg-1); border: 1px solid var(--pt-border-muted); border-radius: 2px; min-width: 60px;">
+					<span class="text-base font-bold tabular-nums pt-data leading-none" style="color: var(--pt-text-primary);">{connectionStats.agencies}</span>
+					<span class="pt-label mt-0.5" style="font-size: 0.65rem;">{connectionStats.agencies === 1 ? 'Agency' : 'Agencies'}</span>
 				</div>
 				{/if}
 				{#if overlapTimeline}
-				<div class="flex flex-col items-center justify-center px-4 py-2 shrink-0"
-				     style="background: var(--pt-bg-2); border: 1px solid var(--pt-border); border-radius: 2px; min-width: 72px;">
-					<span class="text-2xl font-bold tabular-nums pt-data leading-none" style="color: var(--pt-text-primary);">{overlapTimeline}</span>
-					<span class="pt-label mt-1">Timeline</span>
+				<div class="flex flex-col items-center justify-center px-3 py-1.5 shrink-0"
+				     style="background: var(--pt-bg-1); border: 1px solid var(--pt-border-muted); border-radius: 2px; min-width: 60px;">
+					<span class="text-base font-bold tabular-nums pt-data leading-none" style="color: var(--pt-text-primary);">{overlapTimeline}</span>
+					<span class="pt-label mt-0.5" style="font-size: 0.65rem;">Timeline</span>
 				</div>
 				{/if}
 			</div>
@@ -948,7 +948,7 @@
 			</div>
 		{/if}
 
-		<svg bind:this={svgEl} class="w-full h-full" style="touch-action: none;"></svg>
+		<svg bind:this={svgEl} class="w-full h-full" style="display: block; touch-action: none;"></svg>
 
 		<!-- Legend -->
 		{#if ministryLegend.length > 0}
