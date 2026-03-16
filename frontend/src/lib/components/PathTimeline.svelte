@@ -13,6 +13,7 @@
 		inPath: boolean;
 		org_id?: number;
 		person_id?: number;
+		role?: string; // most-recent rank/title from employment profile
 	}
 	interface TLEdge {
 		source: string | TLNode;
@@ -101,6 +102,7 @@
 		personId: string;
 		personName: string;
 		initials: string;
+		role?: string;
 		color: string;
 		isSource: boolean;
 		isTarget: boolean;
@@ -133,7 +135,8 @@
 			seen.add(key);
 			out.push({
 				personId: person.id, personName: person.name,
-				initials: initials(person.name), color: blockColor(person),
+				initials: initials(person.name), role: person.role,
+				color: blockColor(person),
 				isSource: person.isSource, isTarget: person.isTarget,
 				ministry: org.ministry, agencyId: org.id,
 				agencyName: org.agencyName ?? org.name,
@@ -169,7 +172,8 @@
 				if (!org || org.type !== 'org' || !org.ministry) continue;
 				out.push({
 					personId: n.id, personName: n.name,
-					initials: initials(n.name), color: blockColor(n),
+					initials: initials(n.name), role: n.role,
+					color: blockColor(n),
 					isSource: n.isSource, isTarget: n.isTarget,
 					ministry: org.ministry, agencyId: org.id,
 					agencyName: org.agencyName ?? org.name,
@@ -542,45 +546,59 @@
 						{@const bx     = xScale(b.yearStart)}
 						{@const bw     = Math.max(xScale(b.yearEnd) - bx, 16)}
 
+						{@const midX   = bx + bw / 2}
+						{@const midY   = by_ + bh / 2}
+						{@const nSize  = Math.min(11, Math.max(8.5, LANE_H * 0.26))}
+						{@const rSize  = Math.max(7.5, nSize - 2)}
+						{@const hasRole = !!b.role && bh > 26}
+
 						{#if b.isFallback}
 							<rect x={bx} y={by_} width={bw} height={bh} fill={b.color} rx="2" opacity="0.2" />
 							<rect x={bx} y={by_} width={bw} height={bh}
 							      fill="none" stroke={b.color} stroke-width="1.5"
 							      stroke-dasharray="4,3" rx="2" opacity="0.65" />
 							{#if bw > 18}
-								<text x={bx + bw / 2} y={by_ + bh / 2 + 4}
-								      text-anchor="middle" fill={b.color}
-								      font-size={Math.min(10, LANE_H * 0.25)}
-								      font-weight="700" pointer-events="none"
-								      font-family="'Fira Mono','JetBrains Mono','Consolas',monospace"
-								>{b.initials}</text>
+								<text x={midX} y={midY + 4} text-anchor="middle"
+								      fill={b.color} font-size={nSize} font-weight="700"
+								      pointer-events="none">{b.initials}</text>
 							{/if}
 						{:else}
-							<!-- Drop shadow -->
+							<!-- Drop shadow + main block -->
 							<rect x={bx + 1} y={by_ + 1} width={bw} height={bh} fill="rgba(0,0,0,0.2)" rx="2" />
-							<!-- Main block -->
 							<rect x={bx} y={by_} width={bw} height={bh}
 							      fill={b.color} rx="2" opacity="0.9"
 							      style="cursor: pointer;"
 							      onmouseenter={(e) => { hov = b; hx = e.clientX; hy = e.clientY; }}
 							      onmouseleave={() => { hov = null; }} />
-							<!-- Top highlight stripe for source/target -->
 							{#if hasLbl}
 								<rect x={bx} y={by_} width={bw} height={3} fill="white" rx="2" opacity="0.25" pointer-events="none" />
 							{/if}
-							<!-- Label inside block -->
-							{#if bw > 70}
-								<text x={bx + bw / 2} y={by_ + bh / 2 + 4}
-								      text-anchor="middle" fill="white"
-								      font-size={Math.min(10, LANE_H * 0.24)}
-								      font-weight="600" pointer-events="none"
-								      font-family="'Fira Mono','JetBrains Mono','Consolas',monospace"
-								>{b.initials}  {b.yearStart}–{b.yearEnd}</text>
-							{:else if bw > 24}
-								<text x={bx + bw / 2} y={by_ + bh / 2 + 4}
-								      text-anchor="middle" fill="white"
-								      font-size={Math.min(10, LANE_H * 0.28)}
-								      font-weight="700" pointer-events="none"
+
+							<!-- ── Block text: full name + role ───────── -->
+							{#if bw > 90}
+								<!-- Wide: full name on line 1, role (if any) on line 2 -->
+								<text text-anchor="middle" pointer-events="none"
+								      x={midX} y={hasRole ? midY - 2 : midY + 4}>
+									<tspan x={midX} dy="0"
+									       fill="white" font-size={nSize} font-weight="700"
+									       font-family="inherit"
+									>{trunc(b.personName, Math.floor(bw / (nSize * 0.62)))}</tspan>
+									{#if hasRole}
+										<tspan x={midX} dy={nSize + 3}
+										       fill="rgba(255,255,255,0.6)" font-size={rSize}
+										       font-family="inherit"
+										>{trunc(b.role!, Math.floor(bw / (rSize * 0.62)))}</tspan>
+									{/if}
+								</text>
+							{:else if bw > 44}
+								<!-- Medium: first name only -->
+								<text x={midX} y={midY + 4} text-anchor="middle" pointer-events="none"
+								      fill="white" font-size={nSize} font-weight="700" font-family="inherit"
+								>{trunc(b.personName.split(' ')[0], Math.floor(bw / (nSize * 0.62)))}</text>
+							{:else if bw > 20}
+								<!-- Narrow: initials -->
+								<text x={midX} y={midY + 4} text-anchor="middle" pointer-events="none"
+								      fill="white" font-size={nSize} font-weight="700"
 								      font-family="'Fira Mono','JetBrains Mono','Consolas',monospace"
 								>{b.initials}</text>
 							{/if}
@@ -639,6 +657,9 @@
 		            background: var(--pt-bg-2); border: 1px solid var(--pt-border);
 		            border-radius: 2px; box-shadow: 0 4px 14px rgba(0,0,0,0.45); min-width: 180px;">
 			<p class="text-sm font-semibold leading-snug" style="color: var(--pt-text-primary);">{hov.personName}</p>
+			{#if hov.role}
+				<p class="text-xs mt-0.5" style="color: var(--pt-text-muted);">{hov.role}</p>
+			{/if}
 			<p class="text-sm mt-0.5 tabular-nums" style="color: var(--pt-text-muted);">{hov.yearStart}–{hov.yearEnd}</p>
 			<p class="mt-1 leading-snug" style="color: var(--pt-text-secondary); font-size: 10px;">{hov.agencyName}</p>
 			{#if hov.isSource}
