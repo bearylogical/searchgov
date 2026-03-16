@@ -1,13 +1,61 @@
 @import "tailwindcss";
 
+/* ─── Palantir / Blueprint design tokens ──────────────────────────────────── */
+:root {
+	/* Backgrounds */
+	--pt-bg-0: #1C2127;
+	--pt-bg-1: #252A31;
+	--pt-bg-2: #2F343C;
+	--pt-bg-3: #383E47;
+	--pt-bg-4: #404854;
+
+	/* Borders */
+	--pt-border: #394B59;
+	--pt-border-muted: #30404D;
+
+	/* Text */
+	--pt-text-primary: #F5F8FA;
+	--pt-text-secondary: #ABB3BF;
+	--pt-text-muted: #5C7080;
+
+	/* Intent colours */
+	--pt-blue: #137CBD;
+	--pt-blue-hover: #106BA3;
+	--pt-blue-light: #2D72D2;
+	--pt-blue-tint: rgba(19, 124, 189, 0.15);
+	--pt-green: #0D8050;
+	--pt-green-light: #0A6640;
+	--pt-green-tint: rgba(13, 128, 80, 0.15);
+	--pt-orange: #BF7326;
+	--pt-orange-tint: rgba(191, 115, 38, 0.15);
+	--pt-red: #C23030;
+	--pt-red-tint: rgba(194, 48, 48, 0.15);
+	--pt-violet: #634DBF;
+	--pt-violet-hover: #5341A5;
+	--pt-violet-tint: rgba(99, 77, 191, 0.15);
+	--pt-gold: #D9822B;
+	--pt-gold-tint: rgba(217, 130, 43, 0.15);
+}
+
 @theme {
 	--font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-	--font-size-xs: 0.75rem;
+	--font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+	--font-size-xs: 0.6875rem;
 	--font-size-sm: 0.8125rem;
 	--font-size-base: 0.9375rem;
 	--font-size-lg: 1.0625rem;
 	--font-size-xl: 1.1875rem;
 	--font-size-2xl: 1.375rem;
+
+	/* Minimal border-radius — Palantir flat aesthetic */
+	--radius-none: 0px;
+	--radius-sm: 2px;
+	--radius: 2px;
+	--radius-md: 3px;
+	--radius-lg: 4px;
+	--radius-xl: 4px;
+	--radius-2xl: 4px;
+	--radius-full: 9999px;
 }
 
 /* Class-based dark mode */
@@ -25,6 +73,9 @@
 		-moz-osx-font-smoothing: grayscale;
 		text-rendering: optimizeLegibility;
 		font-size: 15px;
+		scroll-behavior: smooth;
+		/* Default to dark — Palantir dark-first */
+		background-color: var(--pt-bg-0);
 	}
 
 	body {
@@ -32,11 +83,154 @@
 	}
 
 	:focus-visible {
-		outline: 2px solid #2563eb;
+		outline: 2px solid var(--pt-blue);
 		outline-offset: 2px;
 	}
 
 	button {
 		cursor: pointer;
+	}
+}
+
+/* ─── Palantir utility classes ────────────────────────────────────────────── */
+@layer components {
+	/* Card */
+	.pt-card {
+		background-color: var(--pt-bg-1);
+		border: 1px solid var(--pt-border-muted);
+		border-radius: 2px;
+		padding: 1rem;
+	}
+
+	.pt-card-elevated {
+		background-color: var(--pt-bg-2);
+		border: 1px solid var(--pt-border);
+		border-radius: 2px;
+		padding: 1rem;
+	}
+
+	/* Tags / badges */
+	.pt-tag {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		padding: 0.125rem 0.5rem;
+		border-radius: 2px;
+		letter-spacing: 0.03em;
+	}
+
+	.pt-tag-blue {
+		background-color: var(--pt-blue-tint);
+		color: #68b9e5;
+		border: 1px solid rgba(19, 124, 189, 0.3);
+	}
+
+	.pt-tag-green {
+		background-color: var(--pt-green-tint);
+		color: #3dcc91;
+		border: 1px solid rgba(13, 128, 80, 0.3);
+	}
+
+	.pt-tag-orange {
+		background-color: var(--pt-orange-tint);
+		color: #ffb366;
+		border: 1px solid rgba(191, 115, 38, 0.3);
+	}
+
+	.pt-tag-red {
+		background-color: var(--pt-red-tint);
+		color: #ff7373;
+		border: 1px solid rgba(194, 48, 48, 0.3);
+	}
+
+	.pt-tag-violet {
+		background-color: var(--pt-violet-tint);
+		color: #ad99ff;
+		border: 1px solid rgba(99, 77, 191, 0.3);
+	}
+
+	/* Buttons */
+	.pt-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.375rem;
+		font-size: 0.8125rem;
+		font-weight: 600;
+		padding: 0.375rem 0.875rem;
+		border-radius: 2px;
+		transition: background-color 150ms, box-shadow 150ms;
+		border: 1px solid transparent;
+		line-height: 1;
+		white-space: nowrap;
+	}
+
+	.pt-button-primary {
+		background-color: var(--pt-blue);
+		color: #fff;
+		border-color: var(--pt-blue-hover);
+		box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1), 0 1px 2px rgba(0,0,0,0.4);
+	}
+	.pt-button-primary:hover {
+		background-color: var(--pt-blue-hover);
+	}
+	.pt-button-primary:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.pt-button-outlined {
+		background-color: transparent;
+		color: var(--pt-text-secondary);
+		border-color: var(--pt-border);
+	}
+	.pt-button-outlined:hover {
+		background-color: var(--pt-bg-3);
+		color: var(--pt-text-primary);
+	}
+
+	/* Input */
+	.pt-input {
+		background-color: var(--pt-bg-0);
+		border: 1px solid var(--pt-border);
+		border-radius: 2px;
+		color: var(--pt-text-primary);
+		font-size: 0.8125rem;
+		padding: 0.4375rem 0.75rem;
+		width: 100%;
+		transition: border-color 150ms, box-shadow 150ms;
+	}
+
+	.pt-input::placeholder {
+		color: var(--pt-text-muted);
+	}
+
+	.pt-input:focus {
+		outline: none;
+		border-color: var(--pt-blue);
+		box-shadow: 0 0 0 2px rgba(19, 124, 189, 0.25);
+	}
+
+	/* Section label */
+	.pt-label {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--pt-text-muted);
+	}
+
+	/* Data value — monospace */
+	.pt-data {
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		color: var(--pt-text-primary);
+	}
+
+	/* Divider */
+	.pt-divider {
+		border-top: 1px solid var(--pt-border-muted);
 	}
 }
