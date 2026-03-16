@@ -349,6 +349,10 @@ class GraphService:
         time boundary inherited from the previous hop, so the chain of
         connections walks from the present back into the past.
 
+        Time boundary is anchored at today: ongoing overlaps (overlap_end =
+        _MAX_DATE) are treated as ending today, preventing the sentinel from
+        propagating as an unbounded T through every subsequent hop.
+
         Returns:
             (path, chosen_overlaps) where path is a list of person node IDs
             and chosen_overlaps is a parallel list of overlap dicts used on
@@ -357,15 +361,15 @@ class GraphService:
         if source == target:
             return [source], []
 
+        today = date_type.today()
+
         # Queue items: (current_node, time_boundary, path, overlaps_used)
-        queue: deque = deque(
-            [(source, _MAX_DATE, [source], [])]
-        )
-        # Track the latest time_boundary at which each node was first
-        # reached.  We only enqueue a node again if we reach it at a
-        # *strictly later* boundary (more future options), which in
-        # practice never happens with a FIFO BFS + greedy-latest-overlap.
-        visited: dict = {source: _MAX_DATE}
+        # Start at today — the most recent point in the backwards search.
+        queue: deque = deque([(source, today, [source], [])])
+        # visited: node → latest time_boundary at which it was enqueued.
+        # Only re-enqueue if we can reach the node at a strictly later
+        # boundary (more future options for downstream hops).
+        visited: dict = {source: today}
 
         while queue:
             current, T, path, ovs = queue.popleft()
@@ -373,16 +377,15 @@ class GraphService:
             for neighbor in G.neighbors(current):
                 edge = G.edges[current, neighbor]
 
-                # Pick the overlap whose end date is the latest that still
-                # fits within the current time boundary (backwards).
+                # Cap ongoing overlaps at today so the sentinel value
+                # (_MAX_DATE) never passes through as the new boundary.
                 best_ov = None
+                best_eff: date_type | None = None
                 for ov in edge.get("overlaps", []):
-                    if ov["overlap_end"] <= T:
-                        if (
-                            best_ov is None
-                            or ov["overlap_end"] > best_ov["overlap_end"]
-                        ):
-                            best_ov = ov
+                    eff = min(ov["overlap_end"], today)
+                    if eff <= T and (best_eff is None or eff > best_eff):
+                        best_ov = ov
+                        best_eff = eff
 
                 if best_ov is None:
                     continue  # no valid backwards edge to this neighbour
@@ -394,12 +397,12 @@ class GraphService:
                     return new_path, new_ovs
 
                 prev_T = visited.get(neighbor)
-                # Only enqueue if we haven't visited, or if we can reach
-                # this node with a later boundary (better for future hops).
-                if prev_T is None or best_ov["overlap_end"] > prev_T:
-                    visited[neighbor] = best_ov["overlap_end"]
+                # Only enqueue if we can arrive with a later (better)
+                # time boundary than any previous visit.
+                if prev_T is None or best_eff > prev_T:
+                    visited[neighbor] = best_eff
                     queue.append(
-                        (neighbor, best_ov["overlap_end"], new_path, new_ovs)
+                        (neighbor, best_eff, new_path, new_ovs)
                     )
 
         return None, None
