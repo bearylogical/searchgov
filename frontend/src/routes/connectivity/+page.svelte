@@ -201,7 +201,7 @@
 	let pathResult  = $state<{ nodes: PathNode[]; length: number } | null>(null);
 	let pathError   = $state('');
 	let pathLoading = $state(false);
-	let temporal    = $state(true);
+	let temporal    = $state(false);
 
 	// Hover tooltip
 	let hoveredNode  = $state<GNode | null>(null);

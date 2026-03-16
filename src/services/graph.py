@@ -537,6 +537,130 @@ class GraphService:
 
         return final_path
 
+    async def find_shortest_nontemporal_path(
+        self,
+        person1_ids: Union[int, List[int]],
+        person2_ids: Union[int, List[int]],
+        ids_only: bool = False,
+    ) -> List[str]:
+        """
+        Finds the shortest colleague path with no temporal ordering
+        constraint, using the same colleague graph as the temporal search.
+
+        The output is an alternating person → org → person sequence
+        (identical structure to find_shortest_temporal_path) so the
+        frontend can render both modes identically.  For each hop the
+        connecting org is the one whose overlap ended most recently.
+        """
+        colleague_G = await self._build_colleague_graph()
+        full_G = await self.build_full_history_graph()
+
+        source_ids_int = (
+            [person1_ids] if isinstance(person1_ids, int) else person1_ids
+        )
+        target_ids_int = (
+            [person2_ids] if isinstance(person2_ids, int) else person2_ids
+        )
+        source_nodes = [f"person_{pid}" for pid in source_ids_int]
+        target_nodes = [f"person_{pid}" for pid in target_ids_int]
+
+        valid_source_nodes = [
+            n for n in source_nodes if n in colleague_G
+        ]
+        valid_target_nodes = [
+            n for n in target_nodes if n in colleague_G
+        ]
+
+        if not valid_source_nodes or not valid_target_nodes:
+            self.logger.warning(
+                f"No valid source or target IDs found in the colleague "
+                f"graph. Sources given: {source_ids_int}, Targets given: "
+                f"{target_ids_int}"
+            )
+            return []
+
+        shortest_person_path_ids = None
+
+        for source_node in valid_source_nodes:
+            for target_node in valid_target_nodes:
+                if source_node == target_node:
+                    if shortest_person_path_ids is None:
+                        shortest_person_path_ids = [source_node]
+                    continue
+                try:
+                    path = nx.shortest_path(
+                        colleague_G,
+                        source=source_node,
+                        target=target_node,
+                    )
+                    if shortest_person_path_ids is None or len(
+                        path
+                    ) < len(shortest_person_path_ids):
+                        shortest_person_path_ids = path
+                except nx.NetworkXNoPath:
+                    continue
+                except Exception as e:
+                    self.logger.error(
+                        f"Error finding non-temporal path "
+                        f"({source_node}, {target_node}): {e}"
+                    )
+                    continue
+
+        if not shortest_person_path_ids:
+            self.logger.info(
+                f"No non-temporal path found between any of "
+                f"{valid_source_nodes} and any of {valid_target_nodes}."
+            )
+            return []
+
+        def get_int_id(prefixed_id: str) -> int:
+            return int(prefixed_id.split("_")[1])
+
+        structured_path = []
+        structured_path.append(
+            {"type": "person", "id": get_int_id(shortest_person_path_ids[0])}
+        )
+
+        if len(shortest_person_path_ids) > 1:
+            today = date_type.today()
+            for i in range(len(shortest_person_path_ids) - 1):
+                edge_data = colleague_G.edges[
+                    shortest_person_path_ids[i],
+                    shortest_person_path_ids[i + 1],
+                ]
+                # Pick the most-recent overlap as the connecting org
+                overlaps = edge_data.get("overlaps", [])
+                best = max(
+                    overlaps,
+                    key=lambda ov: min(ov["overlap_end"], today),
+                    default=None,
+                )
+                connecting_org_id = (
+                    best["org_id"] if best else overlaps[0]["org_id"]
+                )
+                p2_id = get_int_id(shortest_person_path_ids[i + 1])
+                structured_path.append(
+                    {"type": "org", "id": connecting_org_id}
+                )
+                structured_path.append({"type": "person", "id": p2_id})
+
+        final_path = []
+        for item in structured_path:
+            if item["type"] == "person":
+                node_id = f"person_{item['id']}"
+                final_path.append(
+                    node_id if ids_only
+                    else colleague_G.nodes[node_id]["name"]
+                )
+            else:
+                node_id = f"org_{item['id']}"
+                final_path.append(
+                    node_id if ids_only
+                    else full_G.nodes[node_id]["name"]
+                )
+
+        return final_path
+
     async def calculate_centrality_metrics(
         self, target_date: str = None
     ) -> Dict[str, Dict]:
